@@ -45,7 +45,7 @@ main() {
 
   echo
   echo "Installation des dependances (peut prendre quelques minutes la premiere fois)..."
-  if ! npm install; then
+  if ! npm install --no-audit --no-fund; then
     echo
     echo "[ERREUR] npm install a echoue. Consultez le message ci-dessus."
     pause_and_exit 1

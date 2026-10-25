@@ -49,7 +49,7 @@ git branch --set-upstream-to=origin/main main >nul 2>&1
 
 echo.
 echo Installation des dependances (peut prendre quelques minutes la premiere fois)...
-call npm install
+call npm install --no-audit --no-fund
 if errorlevel 1 (
     echo.
     echo [ERREUR] npm install a echoue. Consultez le message ci-dessus.
