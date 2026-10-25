@@ -317,20 +317,6 @@ select {
   font-size: 12px;
 }
 
-.check {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  color: var(--muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.check input {
-  margin-top: 2px;
-  accent-color: var(--accent);
-}
-
 .empty {
   color: var(--muted);
   text-align: center;

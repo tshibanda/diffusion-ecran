@@ -1,17 +1,18 @@
 // Bureaux virtuels de Windows (Windows + Tab), utilisé par bureaux.ps1.
 // Compilé par PowerShell 5.1 (Add-Type) : C# 5 uniquement.
 //
+// Lecture seule pour les fenêtres des autres applications : rien n'est
+// déplacé, épinglé ni activé, la disposition des bureaux reste intacte.
 // - Liste des bureaux : lue dans le registre, tenu à jour par l'Explorateur.
 // - Bureau de chaque fenêtre : IVirtualDesktopManager (API officielle).
-// - « Afficher sur tous les bureaux » : IVirtualDesktopPinnedApps (API non
-//   documentée mais stable depuis Windows 10, celle du menu de Task View).
-// - Changer de bureau : raccourci Ctrl + Win + flèche.
+// - « Afficher sur tous les bureaux », pour l'écran de projection de
+//   l'application uniquement : IVirtualDesktopPinnedApps (API non documentée
+//   mais stable depuis Windows 10, celle du menu de Task View).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 using Microsoft.Win32;
 
 namespace Diffusion
@@ -79,7 +80,6 @@ namespace Diffusion
         [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint command);
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
-        [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
         const uint GW_OWNER = 4;
@@ -88,12 +88,6 @@ namespace Diffusion
         const int WS_EX_APPWINDOW = 0x40000;
         const int DWMWA_CLOAKED = 14;
         const int DWM_CLOAKED_SHELL = 2; // fenêtre d'un autre bureau
-        const byte VK_LCONTROL = 0xA2;
-        const byte VK_LWIN = 0x5B;
-        const byte VK_LEFT = 0x25;
-        const byte VK_RIGHT = 0x27;
-        const uint KEYEVENTF_EXTENDEDKEY = 0x1;
-        const uint KEYEVENTF_KEYUP = 0x2;
 
         static IVirtualDesktopManager manager;
         static IApplicationViewCollection views;
@@ -337,8 +331,8 @@ namespace Diffusion
             return sb.Append("]}").ToString();
         }
 
-        // Affiche (ou non) une fenêtre sur tous les bureaux.
-        public static string Pin(long hwnd, bool pin)
+        // Affiche une fenêtre de l'application sur tous les bureaux.
+        public static string Pin(long hwnd)
         {
             IntPtr view = ViewFor(new IntPtr(hwnd));
             if (view == IntPtr.Zero)
@@ -354,9 +348,7 @@ namespace Diffusion
                 int pinned;
                 if (pinnedApps.IsViewPinned(view, out pinned) != 0) pinned = 0;
                 bool wasPinned = pinned != 0;
-                int hr = 0;
-                if (pin && !wasPinned) hr = pinnedApps.PinView(view);
-                if (!pin && wasPinned) hr = pinnedApps.UnpinView(view);
+                int hr = wasPinned ? 0 : pinnedApps.PinView(view);
                 if (hr != 0) return Error("Échec (code 0x" + hr.ToString("X8") + ").");
                 return "{\"ok\":true,\"wasPinned\":" + (wasPinned ? "true" : "false") + "}";
             }
@@ -364,40 +356,6 @@ namespace Diffusion
             {
                 Marshal.Release(view);
             }
-        }
-
-        static void Key(byte key, bool up, bool extended)
-        {
-            uint flags = (up ? KEYEVENTF_KEYUP : 0) | (extended ? KEYEVENTF_EXTENDEDKEY : 0);
-            keybd_event(key, 0, flags, UIntPtr.Zero);
-        }
-
-        // Va sur le bureau demandé avec Ctrl + Win + ← / →.
-        public static string SwitchTo(string desktopId)
-        {
-            Guid target;
-            try { target = new Guid(desktopId); }
-            catch { return Error("Bureau inconnu."); }
-            Guid current;
-            var ids = DesktopIds(out current);
-            int from = ids.IndexOf(current);
-            int to = ids.IndexOf(target);
-            if (to < 0) return Error("Ce bureau n'existe plus.");
-            if (from < 0) return Error("Bureau actuel inconnu.");
-            if (from == to) return "{\"ok\":true}";
-
-            byte arrow = to > from ? VK_RIGHT : VK_LEFT;
-            Key(VK_LCONTROL, false, false);
-            Key(VK_LWIN, false, false);
-            for (int i = 0; i < Math.Abs(to - from); i++)
-            {
-                Key(arrow, false, true);
-                Key(arrow, true, true);
-                Thread.Sleep(120);
-            }
-            Key(VK_LWIN, true, false);
-            Key(VK_LCONTROL, true, false);
-            return "{\"ok\":true}";
         }
     }
 }

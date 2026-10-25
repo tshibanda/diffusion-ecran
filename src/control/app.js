@@ -12,10 +12,7 @@ const els = {
   grid: $("source-grid"),
   desktops: $("desktops"),
   desktopList: $("desktop-list"),
-  desktopGo: $("desktop-go"),
   desktopInfo: $("desktop-info"),
-  keepDesktops: $("keep-desktops"),
-  keepDesktopsInput: $("keep-desktops-input"),
   empty: $("source-empty"),
   youtubePanel: $("youtube-panel"),
   ytUrl: $("yt-url"),
@@ -30,6 +27,7 @@ const els = {
   previewThumb: $("preview-thumb"),
   previewPlaceholder: $("preview-placeholder"),
   previewName: $("preview-name"),
+  previewWarning: $("preview-warning"),
   cropLayer: $("crop-layer"),
   cropRect: $("crop-rect"),
   cropRow: $("crop-row"),
@@ -121,12 +119,8 @@ function createCard() {
   label.appendChild(name);
   card.appendChild(label);
 
-  card.addEventListener("click", () => {
-    if (card.source.other) bringWindow(card.source);
-    else selectSource(card.source);
-  });
+  card.addEventListener("click", () => selectSource(card.source));
   card.addEventListener("dblclick", () => {
-    if (card.source.other) return;
     selectSource(card.source);
     play();
   });
@@ -181,9 +175,9 @@ function renderSources() {
 }
 
 // --- Bureaux virtuels (Windows + Tab) --------------------------------------
-// Les fenêtres des autres bureaux ne peuvent pas être capturées telles
-// quelles : un clic les rend visibles sur tous les bureaux, puis elles se
-// diffusent comme les autres.
+// Windows ne propose que les fenêtres du bureau affiché : celles des autres
+// bureaux sont listées par l'assistant (lecture seule) et capturées
+// directement, sans changer de bureau ni toucher à la fenêtre.
 
 async function refreshDesktops() {
   if (api.platform !== "win32") return;
@@ -213,7 +207,7 @@ function otherDesktopSources() {
   return state.desktops.windows
     .filter((w) => !w.onCurrent && !w.pinned)
     .map((w) => ({
-      id: `desk:${w.hwnd}`,
+      id: `window:${w.hwnd}:0`,
       name: w.title,
       kind: "window",
       thumbnail: null,
@@ -268,61 +262,13 @@ function renderDesktops() {
   els.desktopList.replaceChildren(...chips);
 
   const viewed = d.desktops.find((x) => x.id === state.desktopView);
-  els.desktopGo.hidden = !viewed;
   if (viewed) {
-    els.desktopInfo.textContent = d.pinAvailable
-      ? `Fenêtres du bureau « ${desktopLabel(viewed)} ». Cliquez sur une fenêtre pour l'afficher aussi sur ce bureau-ci : vous pourrez alors la prévisualiser et la diffuser.`
-      : `Fenêtres du bureau « ${desktopLabel(viewed)} ». Cette version de Windows ne permet pas de les ramener ici : utilisez « Aller sur ce bureau ».`;
+    els.desktopInfo.textContent = `Fenêtres du bureau « ${desktopLabel(viewed)} ». Elles se prévisualisent et se diffusent d'ici, sans changer de bureau ni déplacer la fenêtre.`;
   }
 }
-
-async function bringWindow(source) {
-  if (!state.desktops || !state.desktops.pinAvailable) {
-    showToast("Impossible de ramener cette fenêtre ici : utilisez « Aller sur ce bureau ».");
-    return;
-  }
-  const result = await api.bringWindow(source.hwnd);
-  if (!result.ok) {
-    showToast(`Impossible de ramener cette fenêtre : ${result.error}`);
-    return;
-  }
-  state.desktopView = null;
-  if (source.minimized) showToast("Cette fenêtre est réduite : restaurez-la pour voir son image.");
-  // Elle apparaît dans la liste des fenêtres capturables après un court instant.
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await refreshSources();
-    const found = state.sources.find((s) => s.id.startsWith(`window:${source.hwnd}:`));
-    if (found) {
-      selectSource(found);
-      if (!source.minimized) {
-        showToast(`« ${found.name} » est maintenant visible sur tous les bureaux.`);
-      }
-      return;
-    }
-    await sleep(400);
-  }
-  showToast("La fenêtre a été ramenée mais n'apparaît pas encore : cliquez sur ↻.");
-}
-
-els.desktopGo.addEventListener("click", async () => {
-  const target = state.desktopView;
-  if (!target) return;
-  const result = await api.switchDesktop(target);
-  if (!result.ok) {
-    showToast(`Impossible de changer de bureau : ${result.error}`);
-    return;
-  }
-  state.desktopView = null;
-  await sleep(700);
-  refreshSources();
-});
-
-els.keepDesktopsInput.addEventListener("change", () =>
-  api.setKeepOnAllDesktops(els.keepDesktopsInput.checked)
-);
 
 function selectSource(source) {
-  state.selected = { id: source.id, name: source.name };
+  state.selected = { id: source.id, name: source.name, other: !!source.other };
   renderSources();
   renderPreview();
   updateControls();
@@ -359,13 +305,21 @@ function wantedPreview() {
     if (state.youtube) return { thumb: state.youtube.thumbnail, name: state.youtube.title || "" };
     return { text: "Collez le lien d'une vidéo YouTube à gauche." };
   }
-  if (state.selected) return { stream: state.selected.id, name: state.selected.name, crop: true };
+  if (state.selected) {
+    return {
+      stream: state.selected.id,
+      name: state.selected.name,
+      crop: true,
+      other: state.selected.other,
+    };
+  }
   return { text: "Choisissez une fenêtre à gauche pour la voir ici." };
 }
 
 async function renderPreview() {
   const wanted = wantedPreview();
   els.previewName.textContent = wanted.name || "";
+  if (previewFor !== wanted.stream) els.previewWarning.hidden = true;
   els.cropLayer.hidden = !wanted.crop || !previewStream || previewFor !== wanted.stream;
 
   if (!wanted.stream) {
@@ -401,6 +355,7 @@ async function renderPreview() {
     els.preview.srcObject = stream;
     setPlaceholder("");
     els.cropLayer.hidden = !wanted.crop;
+    if (wanted.other) watchPreviewImage(stream);
     const [track] = stream.getVideoTracks();
     if (track) {
       track.addEventListener("ended", () => {
@@ -413,7 +368,41 @@ async function renderPreview() {
     }
   } catch {
     if (token !== previewToken) return;
-    setPlaceholder("Impossible d'afficher l'aperçu de cette fenêtre.");
+    setPlaceholder(
+      wanted.other
+        ? "Windows refuse de fournir l'image de cette fenêtre tant que son bureau n'est pas affiché."
+        : "Impossible d'afficher l'aperçu de cette fenêtre."
+    );
+  }
+}
+
+// Fenêtre d'un autre bureau : Windows peut ne pas fournir son image (image
+// absente ou noire). On le signale sous l'aperçu, sans rien changer d'autre.
+const probe = document.createElement("canvas");
+probe.width = 32;
+probe.height = 18;
+
+function previewLooksEmpty() {
+  const v = els.preview;
+  if (!v.videoWidth) return true;
+  const ctx = probe.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(v, 0, 0, probe.width, probe.height);
+  const data = ctx.getImageData(0, 0, probe.width, probe.height).data;
+  let max = 0;
+  for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i], data[i + 1], data[i + 2]);
+  return max < 6;
+}
+
+async function watchPreviewImage(stream) {
+  await sleep(2500);
+  while (previewStream === stream) {
+    const empty = previewLooksEmpty();
+    els.previewWarning.hidden = !empty;
+    els.previewWarning.textContent = empty
+      ? "Aucune image reçue pour l'instant de cette fenêtre (autre bureau). Si cela dure, Windows ne la fournit pas tant que son bureau n'est pas affiché ; vérifiez aussi qu'elle n'est pas réduite."
+      : "";
+    if (!empty) return;
+    await sleep(2000);
   }
 }
 
@@ -783,10 +772,11 @@ function setTab(kind) {
   els.search.hidden = youtube;
   els.refresh.hidden = youtube;
   els.fitField.hidden = youtube;
-  els.keepDesktops.hidden = youtube || api.platform !== "win32";
   // La sélection d'une fenêtre ne passe pas d'un onglet à l'autre.
   if (!youtube && state.selected) {
-    const source = state.sources.find((s) => s.id === state.selected.id);
+    const source = [...state.sources, ...otherDesktopSources()].find(
+      (s) => s.id === state.selected.id
+    );
     if (!source || source.kind !== kind) state.selected = null;
   }
   renderSources();
@@ -838,8 +828,6 @@ async function init() {
   state.displayId = settings.displayId;
   state.fit = settings.fit;
   els.fit.value = state.fit;
-  els.keepDesktopsInput.checked = settings.keepOnAllDesktops;
-  els.keepDesktops.hidden = api.platform !== "win32";
 
   const permission = await api.screenPermission();
   els.banner.hidden = permission === "granted";

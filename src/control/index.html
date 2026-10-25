@@ -43,7 +43,6 @@
         <div id="desktops" class="desktops" hidden>
           <span class="desktops-label">Bureaux</span>
           <div id="desktop-list" class="desktop-list"></div>
-          <button id="desktop-go" class="btn small" hidden>Aller sur ce bureau</button>
         </div>
         <p id="desktop-info" class="desktop-info" hidden></p>
         <div id="source-grid" class="grid"></div>
@@ -88,6 +87,7 @@
           </p>
         </div>
         <p id="preview-name" class="preview-name"></p>
+        <p id="preview-warning" class="warning" hidden></p>
 
         <div id="crop-row" class="crop-row" hidden>
           <span id="crop-text">Zone diffusée : fenêtre entière</span>
@@ -97,14 +97,6 @@
           Plein écran d'une partie seulement (ex. la vidéo dans une fenêtre Chrome) : tracez un
           rectangle sur l'aperçu avec la souris.
         </p>
-
-        <label id="keep-desktops" class="check" hidden>
-          <input id="keep-desktops-input" type="checkbox" />
-          <span>
-            Garder la fenêtre diffusée sur tous les bureaux (sinon l'image se fige quand vous
-            changez de bureau avec Windows + Tab)
-          </span>
-        </label>
 
         <label class="field">
           <span>Écran de projection</span>

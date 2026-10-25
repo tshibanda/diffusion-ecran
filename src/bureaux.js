@@ -81,12 +81,6 @@ function hwndOf(win) {
   return (handle.length >= 8 ? handle.readBigUInt64LE(0) : BigInt(handle.readUInt32LE(0))).toString();
 }
 
-// HWND d'une source desktopCapturer « window:<hwnd>:0 ».
-function hwndOfSource(sourceId) {
-  const m = /^window:(\d+):/.exec(sourceId || "");
-  return m ? m[1] : null;
-}
-
 function stop() {
   if (child) child.kill();
 }
@@ -94,10 +88,8 @@ function stop() {
 module.exports = {
   supported,
   list: () => request({ cmd: "list", pid: process.pid }),
+  // Uniquement pour nos propres fenêtres (écran de projection).
   pin: (hwnd) => request({ cmd: "pin", hwnd: String(hwnd) }),
-  unpin: (hwnd) => request({ cmd: "unpin", hwnd: String(hwnd) }),
-  switchTo: (desktop) => request({ cmd: "switch", desktop }),
   hwndOf,
-  hwndOfSource,
   stop,
 };
