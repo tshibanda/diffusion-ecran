@@ -13,6 +13,7 @@ const path = require("path");
 const fs = require("fs");
 const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
+const bureaux = require("./bureaux");
 
 const APP_TITLE = "Diffusion Écran";
 const PROJECTOR_TITLE = "Diffusion Écran — Projection";
@@ -132,6 +133,56 @@ function sendToControl(channel, payload) {
 
 function broadcastStatus() {
   sendToControl("status", status());
+  syncPinnedWindows();
+}
+
+// --- Bureaux virtuels (Windows) ---------------------------------------------
+// Une fenêtre capturée ne donne une image que si elle est sur le bureau
+// affiché. On rend donc « visible sur tous les bureaux » la fenêtre diffusée
+// (et celle qu'on vient de ramener d'un autre bureau), ainsi que nos propres
+// fenêtres pour que la projection continue quand on change de bureau.
+
+// Fenêtres d'autres applications que nous avons épinglées (HWND), à
+// remettre comme avant dès qu'elles ne sont plus utiles.
+const pinnedByUs = new Set();
+let lastBrought = null;
+let pinQueue = Promise.resolve();
+
+function keepOnAllDesktops() {
+  return loadSettings().keepOnAllDesktops !== false;
+}
+
+function syncPinnedWindows() {
+  if (!bureaux.supported) return;
+  pinQueue = pinQueue
+    .then(async () => {
+      const liveHwnd =
+        live && live.kind === "capture" && keepOnAllDesktops()
+          ? bureaux.hwndOfSource(live.sourceId)
+          : null;
+      if (liveHwnd && !pinnedByUs.has(liveHwnd)) {
+        const result = await bureaux.pin(liveHwnd);
+        if (result.ok && !result.wasPinned) pinnedByUs.add(liveHwnd);
+      }
+      for (const hwnd of [...pinnedByUs]) {
+        if (hwnd === liveHwnd || hwnd === lastBrought) continue;
+        pinnedByUs.delete(hwnd);
+        await bureaux.unpin(hwnd);
+      }
+    })
+    .catch(() => {});
+}
+
+function pinOwnWindow(win) {
+  if (!bureaux.supported || !win || win.isDestroyed()) return;
+  bureaux.pin(bureaux.hwndOf(win)).catch(() => {});
+}
+
+async function unpinAll() {
+  const all = [...pinnedByUs];
+  pinnedByUs.clear();
+  lastBrought = null;
+  await Promise.all(all.map((hwnd) => bureaux.unpin(hwnd)));
 }
 
 // --- Bloqueur de publicités (fenêtre YouTube) ----------------------------
@@ -287,6 +338,7 @@ function openProjector(display, kind) {
     // (sinon la fenêtre de contrôle deviendrait inaccessible).
     if (controlDisplayId() !== display.id) win.setAlwaysOnTop(true, "screen-saver");
     if (controlWindow && !controlWindow.isDestroyed()) controlWindow.focus();
+    pinOwnWindow(win);
     broadcastStatus();
   });
 
@@ -442,7 +494,35 @@ ipcMain.handle("settings:get", () => {
   return {
     displayId: defaultDisplayId(),
     fit: FIT_MODES.includes(saved.fit) ? saved.fit : "contain",
+    keepOnAllDesktops: saved.keepOnAllDesktops !== false,
   };
+});
+
+ipcMain.handle("settings:keep-on-all-desktops", (_event, value) => {
+  saveSettings({ keepOnAllDesktops: !!value });
+  syncPinnedWindows();
+});
+
+ipcMain.handle("bureaux:list", async () => {
+  if (!bureaux.supported) return { available: false };
+  const result = await bureaux.list();
+  if (!result.ok) return { available: false, error: result.error };
+  return { available: true, ...result };
+});
+
+ipcMain.handle("bureaux:switch", (_event, desktopId) => bureaux.switchTo(String(desktopId)));
+
+// Ramène une fenêtre d'un autre bureau : elle devient visible sur tous les
+// bureaux, donc capturable d'ici.
+ipcMain.handle("bureaux:bring", async (_event, hwnd) => {
+  const id = String(hwnd);
+  const result = await bureaux.pin(id);
+  if (result.ok) {
+    if (!result.wasPinned) pinnedByUs.add(id);
+    lastBrought = id;
+    syncPinnedWindows();
+  }
+  return result;
 });
 
 ipcMain.handle("status:get", () => status());
@@ -566,6 +646,10 @@ function createControlWindow() {
     },
   });
   controlWindow.loadFile(path.join(__dirname, "control", "index.html"));
+  // Visible sur tous les bureaux virtuels : on garde la régie en changeant de bureau.
+  controlWindow.webContents.once("did-finish-load", () =>
+    setTimeout(() => pinOwnWindow(controlWindow), 300)
+  );
   controlWindow.on("closed", () => {
     controlWindow = null;
     closeProjector();
@@ -602,4 +686,19 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("window-all-closed", () => app.quit());
+
+  // Avant de quitter : les fenêtres épinglées par nous redeviennent normales.
+  let cleanedUp = false;
+  app.on("before-quit", (event) => {
+    if (cleanedUp || !bureaux.supported) return;
+    event.preventDefault();
+    cleanedUp = true;
+    const timeout = new Promise((resolve) => setTimeout(resolve, 2000));
+    Promise.race([unpinAll(), timeout])
+      .catch(() => {})
+      .finally(() => {
+        bureaux.stop();
+        app.quit();
+      });
+  });
 }

@@ -255,6 +255,82 @@ select {
   white-space: nowrap;
 }
 
+.desktops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.desktops-label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.desktop-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.desktop-chip {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.desktop-chip .count {
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.desktop-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.desktop-chip.current::before {
+  content: "●";
+  color: var(--accent);
+  margin-right: 6px;
+  font-size: 10px;
+  vertical-align: 1px;
+}
+
+.desktop-info {
+  margin: 0;
+  padding: 10px 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.thumb-label {
+  color: var(--muted);
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
 .empty {
   color: var(--muted);
   text-align: center;

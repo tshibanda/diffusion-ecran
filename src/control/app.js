@@ -10,6 +10,12 @@ const els = {
   search: $("search"),
   refresh: $("refresh"),
   grid: $("source-grid"),
+  desktops: $("desktops"),
+  desktopList: $("desktop-list"),
+  desktopGo: $("desktop-go"),
+  desktopInfo: $("desktop-info"),
+  keepDesktops: $("keep-desktops"),
+  keepDesktopsInput: $("keep-desktops-input"),
   empty: $("source-empty"),
   youtubePanel: $("youtube-panel"),
   ytUrl: $("yt-url"),
@@ -63,7 +69,12 @@ const state = {
   displayId: null,
   fit: "contain",
   status: { live: false },
+  // Bureaux virtuels de Windows : { desktops, windows, current, pinAvailable }
+  desktops: null,
+  desktopView: null, // bureau affiché dans l'onglet Fenêtres (null = bureau actuel)
 };
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isYoutubeTab = () => state.kind === "youtube";
 const currentCrop = () => (state.selected && state.crops.get(state.selected.id)) || null;
@@ -71,11 +82,13 @@ const currentCrop = () => (state.selected && state.crops.get(state.selected.id))
 // --- Liste des fenêtres --------------------------------------------------
 
 async function refreshSources() {
+  const desktops = refreshDesktops();
   try {
     state.sources = await api.listSources();
   } catch {
     state.sources = [];
   }
+  await desktops;
   const selected = state.selected && state.sources.find((s) => s.id === state.selected.id);
   if (selected) state.selected.name = selected.name;
   renderSources();
@@ -94,6 +107,9 @@ function createCard() {
   const img = document.createElement("img");
   img.alt = "";
   thumb.appendChild(img);
+  const placeholder = document.createElement("span");
+  placeholder.className = "thumb-label";
+  thumb.appendChild(placeholder);
   card.appendChild(thumb);
 
   const label = document.createElement("div");
@@ -105,19 +121,27 @@ function createCard() {
   label.appendChild(name);
   card.appendChild(label);
 
-  card.addEventListener("click", () => selectSource(card.source));
+  card.addEventListener("click", () => {
+    if (card.source.other) bringWindow(card.source);
+    else selectSource(card.source);
+  });
   card.addEventListener("dblclick", () => {
+    if (card.source.other) return;
     selectSource(card.source);
     play();
   });
-  card.parts = { img, icon, name };
+  card.parts = { img, icon, name, placeholder };
   return card;
 }
 
 function updateCard(card, source) {
   card.source = source;
   card.title = source.name;
-  const { img, icon, name } = card.parts;
+  const { img, icon, name, placeholder } = card.parts;
+  placeholder.textContent = source.other
+    ? `${source.process || "Fenêtre"}${source.minimized ? " (réduite)" : ""}`
+    : "";
+  placeholder.hidden = !source.other;
   if (img.getAttribute("src") !== (source.thumbnail || "")) img.src = source.thumbnail || "";
   img.hidden = !source.thumbnail;
   if (icon.getAttribute("src") !== (source.icon || "")) icon.src = source.icon || "";
@@ -129,11 +153,12 @@ function updateCard(card, source) {
 
 function renderSources() {
   const filter = state.filter.trim().toLowerCase();
-  const visible = state.sources.filter(
-    (s) => s.kind === state.kind && (!filter || s.name.toLowerCase().includes(filter))
+  const visible = visibleSources().filter(
+    (s) => !filter || s.name.toLowerCase().includes(filter)
   );
+  renderDesktops();
 
-  const ids = new Set(state.sources.map((s) => s.id));
+  const ids = new Set([...state.sources, ...otherDesktopSources()].map((s) => s.id));
   for (const id of cards.keys()) if (!ids.has(id)) cards.delete(id);
 
   const ordered = visible.map((source) => {
@@ -154,6 +179,147 @@ function renderSources() {
   els.empty.textContent =
     state.kind === "window" ? "Aucune fenêtre trouvée." : "Aucun écran trouvé.";
 }
+
+// --- Bureaux virtuels (Windows + Tab) --------------------------------------
+// Les fenêtres des autres bureaux ne peuvent pas être capturées telles
+// quelles : un clic les rend visibles sur tous les bureaux, puis elles se
+// diffusent comme les autres.
+
+async function refreshDesktops() {
+  if (api.platform !== "win32") return;
+  let result = null;
+  try {
+    result = await api.listDesktops();
+  } catch {
+    // Assistant indisponible : on garde l'affichage simple.
+  }
+  state.desktops = result && result.available ? result : null;
+  const ids = state.desktops ? state.desktops.desktops.map((d) => d.id) : [];
+  if (!ids.includes(state.desktopView) || state.desktopView === currentDesktopId()) {
+    state.desktopView = null;
+  }
+}
+
+const currentDesktopId = () => (state.desktops ? state.desktops.current : null);
+const viewingOtherDesktop = () =>
+  state.kind === "window" && !!state.desktops && state.desktopView !== null;
+
+function desktopLabel(d) {
+  return d.name || `Bureau ${d.index}`;
+}
+
+function otherDesktopSources() {
+  if (!state.desktops) return [];
+  return state.desktops.windows
+    .filter((w) => !w.onCurrent && !w.pinned)
+    .map((w) => ({
+      id: `desk:${w.hwnd}`,
+      name: w.title,
+      kind: "window",
+      thumbnail: null,
+      icon: null,
+      other: true,
+      hwnd: w.hwnd,
+      desktop: w.desktop,
+      process: w.process,
+      minimized: w.minimized,
+    }));
+}
+
+function visibleSources() {
+  if (viewingOtherDesktop()) {
+    return otherDesktopSources().filter((s) => s.desktop === state.desktopView);
+  }
+  return state.sources.filter((s) => s.kind === state.kind);
+}
+
+function renderDesktops() {
+  const d = state.desktops;
+  const show = state.kind === "window" && !!d && d.desktops.length > 1;
+  els.desktops.hidden = !show;
+  els.desktopInfo.hidden = !show || !viewingOtherDesktop();
+  if (!show) return;
+
+  const counts = new Map();
+  for (const w of d.windows) {
+    if (!w.pinned) counts.set(w.desktop, (counts.get(w.desktop) || 0) + 1);
+  }
+  const chips = d.desktops.map((desktop) => {
+    const chip = document.createElement("button");
+    chip.className = "desktop-chip";
+    const active = state.desktopView === null ? desktop.current : state.desktopView === desktop.id;
+    chip.classList.toggle("active", active);
+    chip.classList.toggle("current", desktop.current);
+    const n = counts.get(desktop.id) || 0;
+    chip.title =
+      `${n} fenêtre${n > 1 ? "s" : ""} — ` +
+      (desktop.current ? "bureau affiché en ce moment" : "cliquez pour voir ses fenêtres");
+    chip.textContent = desktopLabel(desktop);
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = `· ${n}`;
+    chip.appendChild(count);
+    chip.addEventListener("click", () => {
+      state.desktopView = desktop.current ? null : desktop.id;
+      renderSources();
+    });
+    return chip;
+  });
+  els.desktopList.replaceChildren(...chips);
+
+  const viewed = d.desktops.find((x) => x.id === state.desktopView);
+  els.desktopGo.hidden = !viewed;
+  if (viewed) {
+    els.desktopInfo.textContent = d.pinAvailable
+      ? `Fenêtres du bureau « ${desktopLabel(viewed)} ». Cliquez sur une fenêtre pour l'afficher aussi sur ce bureau-ci : vous pourrez alors la prévisualiser et la diffuser.`
+      : `Fenêtres du bureau « ${desktopLabel(viewed)} ». Cette version de Windows ne permet pas de les ramener ici : utilisez « Aller sur ce bureau ».`;
+  }
+}
+
+async function bringWindow(source) {
+  if (!state.desktops || !state.desktops.pinAvailable) {
+    showToast("Impossible de ramener cette fenêtre ici : utilisez « Aller sur ce bureau ».");
+    return;
+  }
+  const result = await api.bringWindow(source.hwnd);
+  if (!result.ok) {
+    showToast(`Impossible de ramener cette fenêtre : ${result.error}`);
+    return;
+  }
+  state.desktopView = null;
+  if (source.minimized) showToast("Cette fenêtre est réduite : restaurez-la pour voir son image.");
+  // Elle apparaît dans la liste des fenêtres capturables après un court instant.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await refreshSources();
+    const found = state.sources.find((s) => s.id.startsWith(`window:${source.hwnd}:`));
+    if (found) {
+      selectSource(found);
+      if (!source.minimized) {
+        showToast(`« ${found.name} » est maintenant visible sur tous les bureaux.`);
+      }
+      return;
+    }
+    await sleep(400);
+  }
+  showToast("La fenêtre a été ramenée mais n'apparaît pas encore : cliquez sur ↻.");
+}
+
+els.desktopGo.addEventListener("click", async () => {
+  const target = state.desktopView;
+  if (!target) return;
+  const result = await api.switchDesktop(target);
+  if (!result.ok) {
+    showToast(`Impossible de changer de bureau : ${result.error}`);
+    return;
+  }
+  state.desktopView = null;
+  await sleep(700);
+  refreshSources();
+});
+
+els.keepDesktopsInput.addEventListener("change", () =>
+  api.setKeepOnAllDesktops(els.keepDesktopsInput.checked)
+);
 
 function selectSource(source) {
   state.selected = { id: source.id, name: source.name };
@@ -617,6 +783,7 @@ function setTab(kind) {
   els.search.hidden = youtube;
   els.refresh.hidden = youtube;
   els.fitField.hidden = youtube;
+  els.keepDesktops.hidden = youtube || api.platform !== "win32";
   // La sélection d'une fenêtre ne passe pas d'un onglet à l'autre.
   if (!youtube && state.selected) {
     const source = state.sources.find((s) => s.id === state.selected.id);
@@ -671,6 +838,8 @@ async function init() {
   state.displayId = settings.displayId;
   state.fit = settings.fit;
   els.fit.value = state.fit;
+  els.keepDesktopsInput.checked = settings.keepOnAllDesktops;
+  els.keepDesktops.hidden = api.platform !== "win32";
 
   const permission = await api.screenPermission();
   els.banner.hidden = permission === "granted";

@@ -25,6 +25,20 @@ Fonctionne sous Windows et macOS.
 La fenêtre diffusée doit rester ouverte et non réduite (elle peut être cachée
 derrière d'autres fenêtres).
 
+### Bureaux virtuels de Windows (Windows + Tab)
+
+- Dans l'onglet **Fenêtres**, la barre **Bureaux** liste vos bureaux (avec leur nom
+  s'ils en ont un). Le point orange indique le bureau affiché en ce moment.
+- Cliquez sur un autre bureau pour voir ses fenêtres, puis sur une fenêtre : elle
+  devient visible sur tous les bureaux, s'affiche dans l'aperçu et se diffuse comme
+  les autres. **Aller sur ce bureau** bascule directement sur le bureau choisi.
+- Diffusion Écran et l'écran de projection restent visibles sur tous les bureaux :
+  changer de bureau ne coupe pas la diffusion.
+- La case **Garder la fenêtre diffusée sur tous les bureaux** (cochée par défaut)
+  évite que l'image se fige quand vous changez de bureau. Les fenêtres que
+  l'application a rendues visibles partout redeviennent normales quand elles ne sont
+  plus diffusées et à la fermeture de l'application.
+
 ### Diffuser une vidéo YouTube
 
 - Onglet **YouTube** : collez le lien de la vidéo (Entrée ou **▶ Diffuser**).

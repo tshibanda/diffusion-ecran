@@ -40,6 +40,12 @@
           <input id="search" type="search" placeholder="Rechercher…" />
           <button id="refresh" class="btn small ghost" title="Actualiser la liste">↻</button>
         </div>
+        <div id="desktops" class="desktops" hidden>
+          <span class="desktops-label">Bureaux</span>
+          <div id="desktop-list" class="desktop-list"></div>
+          <button id="desktop-go" class="btn small" hidden>Aller sur ce bureau</button>
+        </div>
+        <p id="desktop-info" class="desktop-info" hidden></p>
         <div id="source-grid" class="grid"></div>
         <p id="source-empty" class="empty" hidden>Aucune fenêtre trouvée.</p>
 
@@ -91,6 +97,14 @@
           Plein écran d'une partie seulement (ex. la vidéo dans une fenêtre Chrome) : tracez un
           rectangle sur l'aperçu avec la souris.
         </p>
+
+        <label id="keep-desktops" class="check" hidden>
+          <input id="keep-desktops-input" type="checkbox" />
+          <span>
+            Garder la fenêtre diffusée sur tous les bureaux (sinon l'image se fige quand vous
+            changez de bureau avec Windows + Tab)
+          </span>
+        </label>
 
         <label class="field">
           <span>Écran de projection</span>
