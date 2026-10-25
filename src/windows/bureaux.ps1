@@ -17,7 +17,6 @@ while ($true) {
         $id = [int]$msg.id
         switch ($msg.cmd) {
             'list'   { $out = [Diffusion.Bureaux]::List([int]$msg.pid) }
-            'pin'    { $out = [Diffusion.Bureaux]::Pin([long]$msg.hwnd) }
             default  { $out = '{"ok":false,"error":"Commande inconnue."}' }
         }
     } catch {

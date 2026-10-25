@@ -1,13 +1,13 @@
 // Bureaux virtuels de Windows (Windows + Tab), utilisé par bureaux.ps1.
 // Compilé par PowerShell 5.1 (Add-Type) : C# 5 uniquement.
 //
-// Lecture seule pour les fenêtres des autres applications : rien n'est
-// déplacé, épinglé ni activé, la disposition des bureaux reste intacte.
+// Lecture seule : rien n'est déplacé, épinglé ni activé, la disposition des
+// bureaux et des fenêtres reste intacte.
 // - Liste des bureaux : lue dans le registre, tenu à jour par l'Explorateur.
 // - Bureau de chaque fenêtre : IVirtualDesktopManager (API officielle).
-// - « Afficher sur tous les bureaux », pour l'écran de projection de
-//   l'application uniquement : IVirtualDesktopPinnedApps (API non documentée
-//   mais stable depuis Windows 10, celle du menu de Task View).
+// - Fenêtres « affichées sur tous les bureaux » : IVirtualDesktopPinnedApps
+//   (API non documentée mais stable depuis Windows 10), pour ne pas les
+//   lister deux fois.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -279,11 +279,6 @@ namespace Diffusion
             return sb.Append('"').ToString();
         }
 
-        static string Error(string message)
-        {
-            return "{\"ok\":false,\"error\":" + Json(message) + "}";
-        }
-
         public static string List(int ownProcessId)
         {
             Guid current;
@@ -329,33 +324,6 @@ namespace Diffusion
                   .Append('}');
             }
             return sb.Append("]}").ToString();
-        }
-
-        // Affiche une fenêtre de l'application sur tous les bureaux.
-        public static string Pin(long hwnd)
-        {
-            IntPtr view = ViewFor(new IntPtr(hwnd));
-            if (view == IntPtr.Zero)
-            {
-                // L'Explorateur a peut-être redémarré : on reconnecte une fois.
-                views = null;
-                pinnedApps = null;
-                view = ViewFor(new IntPtr(hwnd));
-            }
-            if (view == IntPtr.Zero) return Error("Fenêtre introuvable pour le gestionnaire de bureaux.");
-            try
-            {
-                int pinned;
-                if (pinnedApps.IsViewPinned(view, out pinned) != 0) pinned = 0;
-                bool wasPinned = pinned != 0;
-                int hr = wasPinned ? 0 : pinnedApps.PinView(view);
-                if (hr != 0) return Error("Échec (code 0x" + hr.ToString("X8") + ").");
-                return "{\"ok\":true,\"wasPinned\":" + (wasPinned ? "true" : "false") + "}";
-            }
-            finally
-            {
-                Marshal.Release(view);
-            }
         }
     }
 }

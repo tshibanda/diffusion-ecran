@@ -14,6 +14,7 @@ const fs = require("fs");
 const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
 const bureaux = require("./bureaux");
+const foreground = require("./foreground");
 
 const APP_TITLE = "Diffusion Écran";
 const PROJECTOR_TITLE = "Diffusion Écran — Projection";
@@ -133,17 +134,6 @@ function sendToControl(channel, payload) {
 
 function broadcastStatus() {
   sendToControl("status", status());
-}
-
-// --- Bureaux virtuels (Windows) ---------------------------------------------
-// L'application ne touche jamais aux fenêtres des autres applications ni aux
-// bureaux : elle se contente de lire sur quel bureau est chaque fenêtre pour
-// pouvoir la capturer. Seul l'écran de projection est rendu visible sur tous
-// les bureaux, pour que la diffusion continue quand on change de bureau.
-
-function pinProjector(win) {
-  if (!bureaux.supported || !win || win.isDestroyed()) return;
-  bureaux.pin(bureaux.hwndOf(win)).catch(() => {});
 }
 
 // --- Bloqueur de publicités (fenêtre YouTube) ----------------------------
@@ -299,7 +289,6 @@ function openProjector(display, kind) {
     // (sinon la fenêtre de contrôle deviendrait inaccessible).
     if (controlDisplayId() !== display.id) win.setAlwaysOnTop(true, "screen-saver");
     if (controlWindow && !controlWindow.isDestroyed()) controlWindow.focus();
-    pinProjector(win);
     broadcastStatus();
   });
 
@@ -458,6 +447,12 @@ ipcMain.handle("settings:get", () => {
   };
 });
 
+// Voir foreground.js : empêche le changement de bureau au début d'une capture.
+ipcMain.handle("foreground:hold", (_event, on) => (on ? foreground.hold() : foreground.unhold()));
+
+// Bureaux virtuels (Windows) : lecture seule. L'application ne touche jamais
+// aux fenêtres des autres applications ni aux bureaux ; l'écran de projection
+// reste sur le bureau où l'application est ouverte.
 ipcMain.handle("bureaux:list", async () => {
   if (!bureaux.supported) return { available: false };
   const result = await bureaux.list();

@@ -75,12 +75,6 @@ async function request(message) {
   }).catch((error) => ({ ok: false, error: error.message }));
 }
 
-// Identifiant de fenêtre Windows (HWND) d'une BrowserWindow, en texte.
-function hwndOf(win) {
-  const handle = win.getNativeWindowHandle();
-  return (handle.length >= 8 ? handle.readBigUInt64LE(0) : BigInt(handle.readUInt32LE(0))).toString();
-}
-
 function stop() {
   if (child) child.kill();
 }
@@ -88,8 +82,5 @@ function stop() {
 module.exports = {
   supported,
   list: () => request({ cmd: "list", pid: process.pid }),
-  // Uniquement pour nos propres fenêtres (écran de projection).
-  pin: (hwnd) => request({ cmd: "pin", hwnd: String(hwnd) }),
-  hwndOf,
   stop,
 };

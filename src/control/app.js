@@ -28,6 +28,7 @@ const els = {
   previewPlaceholder: $("preview-placeholder"),
   previewName: $("preview-name"),
   previewWarning: $("preview-warning"),
+  browserTip: $("browser-tip"),
   cropLayer: $("crop-layer"),
   cropRect: $("crop-rect"),
   cropRow: $("crop-row"),
@@ -319,6 +320,11 @@ function wantedPreview() {
 async function renderPreview() {
   const wanted = wantedPreview();
   els.previewName.textContent = wanted.name || "";
+  // Les navigateurs avec accélération graphique affichent la vidéo hors de
+  // l'image de la fenêtre : elle apparaît noire à la capture.
+  els.browserTip.hidden = !(
+    wanted.crop && /chrome|edge|brave|opera|firefox|youtube/i.test(wanted.name || "")
+  );
   if (previewFor !== wanted.stream) els.previewWarning.hidden = true;
   els.cropLayer.hidden = !wanted.crop || !previewStream || previewFor !== wanted.stream;
 

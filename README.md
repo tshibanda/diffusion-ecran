@@ -33,10 +33,18 @@ derrière d'autres fenêtres).
   se prévisualise et se diffuse directement d'ici.
 - L'application ne touche à rien : elle ne change pas de bureau, ne déplace pas la
   fenêtre et ne modifie pas sa taille (une fenêtre en plein écran le reste).
-- Seul l'écran de projection est visible sur tous les bureaux, pour que la diffusion
-  continue quand vous changez de bureau.
+- Cliquer sur **Diffuser** ne fait pas changer de bureau. L'écran de projection
+  reste sur le bureau où Diffusion Écran est ouvert.
 - La fenêtre ne doit pas être réduite. Si Windows ne fournit pas son image tant que
   son bureau n'est pas affiché, un message l'indique sous l'aperçu.
+
+### Vidéo noire dans une fenêtre de navigateur
+
+Avec l'accélération graphique, Chrome et Edge confient la vidéo directement à la carte
+graphique : elle n'apparaît pas dans l'image de la fenêtre et reste noire à la
+diffusion. Dans Chrome : **Paramètres → Système → désactivez « Utiliser l'accélération
+graphique si elle est disponible »**, puis relancez Chrome (même réglage dans Edge).
+Pour une vidéo YouTube, l'onglet **YouTube** de l'application évite ce problème.
 
 ### Diffuser une vidéo YouTube
 

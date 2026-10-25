@@ -12,6 +12,7 @@
     "electron": "44.9.3"
   },
   "dependencies": {
-    "@ghostery/adblocker-electron": "^2.20.1"
+    "@ghostery/adblocker-electron": "^2.20.1",
+    "koffi": "3.3.2"
   }
 }
