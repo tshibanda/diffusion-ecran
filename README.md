@@ -25,26 +25,25 @@ Fonctionne sous Windows et macOS.
 La fenêtre diffusée doit rester ouverte et non réduite (elle peut être cachée
 derrière d'autres fenêtres).
 
+### Diffuser une fenêtre sous Windows (même sur un autre bureau)
+
+- **Diffuser** place la fenêtre choisie en plein écran sur l'écran de projection. C'est
+  la fenêtre elle-même qui s'y affiche : une vidéo YouTube en lecture dans Chrome
+  continue de jouer normalement, même si cette fenêtre était sur un autre bureau.
+- **Arrêter** (ou diffuser autre chose, ou fermer l'application) remet la fenêtre
+  comme avant : position, taille, plein écran, réduite/agrandie et bureau.
+- Aucune touche ni aucun clic n'est simulé, et la fenêtre n'est pas mise au premier
+  plan.
+- Si vous tracez une zone sur l'aperçu, la fenêtre reste à sa place et seule la zone
+  est copiée sur l'écran de projection : la fenêtre doit alors rester visible sur le
+  bureau affiché (Windows ne dessine pas les fenêtres des autres bureaux).
+
 ### Bureaux virtuels de Windows (Windows + Tab)
 
 - Dans l'onglet **Fenêtres**, la barre **Bureaux** liste vos bureaux (avec leur nom
   s'ils en ont un). Le point orange indique le bureau affiché en ce moment.
-- Cliquez sur un autre bureau pour voir ses fenêtres, puis sur une fenêtre : elle
-  se prévisualise et se diffuse directement d'ici.
-- L'application ne touche à rien : elle ne change pas de bureau, ne déplace pas la
-  fenêtre et ne modifie pas sa taille (une fenêtre en plein écran le reste).
-- Cliquer sur **Diffuser** ne fait pas changer de bureau. L'écran de projection
-  reste sur le bureau où Diffusion Écran est ouvert.
-- La fenêtre ne doit pas être réduite. Si Windows ne fournit pas son image tant que
-  son bureau n'est pas affiché, un message l'indique sous l'aperçu.
-
-### Vidéo noire ou figée dans une fenêtre Chrome
-
-Windows ne dessine pas les fenêtres d'un bureau virtuel qui n'est pas affiché, et Chrome
-arrête de dessiner une fenêtre cachée : la diffusion d'une telle fenêtre ne reçoit
-qu'une image figée et noire (aucun logiciel de capture ne peut faire mieux). Pour
-YouTube, utilisez **Parcourir YouTube** (ci-dessous) : c'est l'application qui lit la
-vidéo, elle s'affiche toujours, quel que soit le bureau affiché.
+- Cliquez sur un autre bureau pour voir ses fenêtres, puis sur une fenêtre pour la
+  diffuser. Cliquer sur **Diffuser** ne fait pas changer de bureau.
 
 ### Diffuser une vidéo YouTube
 

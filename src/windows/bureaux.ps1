@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type -TypeDefinition ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Bureaux.cs')))
+[Diffusion.Bureaux]::InitDpi()
 [Console]::Out.WriteLine('{"ready":true}')
 [Console]::Out.Flush()
 
@@ -17,6 +18,9 @@ while ($true) {
         $id = [int]$msg.id
         switch ($msg.cmd) {
             'list'   { $out = [Diffusion.Bureaux]::List([int]$msg.pid) }
+            'place'   { $out = [Diffusion.Bureaux]::Place([long]$msg.hwnd, [int]$msg.x, [int]$msg.y, [int]$msg.width, [int]$msg.height) }
+            'restore' { $out = [Diffusion.Bureaux]::Restore([long]$msg.hwnd) }
+            'alive'   { $out = [Diffusion.Bureaux]::Alive([long]$msg.hwnd) }
             default  { $out = '{"ok":false,"error":"Commande inconnue."}' }
         }
     } catch {

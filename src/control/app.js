@@ -76,6 +76,8 @@ const state = {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isYoutubeTab = () => state.kind === "youtube";
+// Windows : « Diffuser » place la fenêtre elle-même sur l'écran de projection.
+const placesWindows = () => api.platform === "win32";
 const currentCrop = () => (state.selected && state.crops.get(state.selected.id)) || null;
 
 // --- Liste des fenêtres --------------------------------------------------
@@ -322,8 +324,12 @@ async function renderPreview() {
   els.previewName.textContent = wanted.name || "";
   // Fenêtre de navigateur : sa vidéo apparaît figée/noire si la fenêtre est
   // sur un autre bureau ou cachée ; on propose « Parcourir YouTube ».
+  // Sous Windows, une fenêtre entière est placée elle-même sur l'écran de
+  // projection : le problème n'existe que pour une zone recadrée (capture).
   els.browserTip.hidden = !(
-    wanted.crop && /chrome|edge|brave|opera|firefox|youtube/i.test(wanted.name || "")
+    wanted.crop &&
+    (!placesWindows() || !!currentCrop()) &&
+    /chrome|edge|brave|opera|firefox|youtube/i.test(wanted.name || "")
   );
   if (previewFor !== wanted.stream) els.previewWarning.hidden = true;
   els.cropLayer.hidden = !wanted.crop || !previewStream || previewFor !== wanted.stream;
@@ -453,6 +459,12 @@ function renderCrop() {
   const show = !isYoutubeTab() && !!state.selected;
   els.cropRow.hidden = !show;
   els.cropHint.hidden = !show;
+  els.cropHint.textContent =
+    placesWindows() && state.kind === "window"
+      ? crop
+        ? "Zone recadrée : la fenêtre reste à sa place et seule cette zone est copiée sur l'écran de projection (la fenêtre doit rester visible sur le bureau affiché)."
+        : "Diffuser place cette fenêtre en plein écran sur l'écran de projection, même si elle est sur un autre bureau ; elle retrouve sa place à l'arrêt. Pour n'envoyer qu'une partie de la fenêtre, tracez un rectangle sur l'aperçu."
+      : "Plein écran d'une partie seulement (ex. la vidéo dans une fenêtre Chrome) : tracez un rectangle sur l'aperçu avec la souris.";
   els.cropReset.hidden = !crop;
   const whole = state.kind === "screen" ? "écran entier" : "fenêtre entière";
   els.cropText.textContent = crop
@@ -756,7 +768,10 @@ function updateControls() {
   } else {
     ready = !!state.selected;
     isLiveSelection =
-      status.live && status.kind === "capture" && ready && status.sourceId === state.selected.id;
+      status.live &&
+      (status.kind === "capture" || status.kind === "move") &&
+      ready &&
+      status.sourceId === state.selected.id;
   }
   isLiveSelection = isLiveSelection && sameDisplay;
 

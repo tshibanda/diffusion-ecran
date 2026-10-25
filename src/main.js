@@ -231,6 +231,7 @@ function stopYoutubeTicker() {
 }
 
 function closeProjector() {
+  if (movedHwnd) releaseMovedWindow();
   const win = projectorWindow;
   projectorWindow = null;
   live = null;
@@ -343,7 +344,102 @@ async function loadYoutube(win, watchUrl) {
   }, YOUTUBE_TICK_MS);
 }
 
+// --- Diffusion d'une fenêtre par placement (Windows) ------------------------
+// Une fenêtre d'un autre bureau n'est pas dessinée par Windows : sa capture
+// reste figée (vidéo noire). On place donc la fenêtre elle-même en plein écran
+// sur l'écran de projection (visible depuis le bureau affiché) ; à l'arrêt, elle
+// retrouve exactement sa place, son état et son bureau d'origine.
+const ALIVE_CHECK_MS = 2000;
+let movedHwnd = null;
+let aliveTimer = null;
+let pendingRestores = 0;
+
+function windowHwnd(sourceId) {
+  const m = /^window:(\d+):/.exec(sourceId || "");
+  return m ? m[1] : null;
+}
+
+function shouldPlaceWindow(request) {
+  return (
+    bureaux.supported &&
+    request.kind !== "youtube" &&
+    !request.crop &&
+    !!windowHwnd(request.sourceId)
+  );
+}
+
+function releaseMovedWindow() {
+  clearInterval(aliveTimer);
+  aliveTimer = null;
+  const hwnd = movedHwnd;
+  movedHwnd = null;
+  if (!hwnd) return Promise.resolve();
+  pendingRestores++;
+  return bureaux.restore(hwnd).finally(() => pendingRestores--);
+}
+
+// Attend que les fenêtres déplacées aient retrouvé leur place.
+async function waitForRestores() {
+  if (movedHwnd) await releaseMovedWindow();
+  while (pendingRestores > 0) await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+async function startWindowPlacement(request) {
+  const hwnd = windowHwnd(request.sourceId);
+  const display = findDisplay(request.displayId) || findDisplay(defaultDisplayId());
+  if (projectorWindow) closeProjector();
+  if (movedHwnd && movedHwnd !== hwnd) await releaseMovedWindow();
+
+  // Coordonnées en vrais pixels (l'écran peut être mis à l'échelle, ex. 125 %).
+  const b = display.bounds;
+  const rect = screen.dipToScreenRect
+    ? screen.dipToScreenRect(null, b)
+    : {
+        x: Math.round(b.x * display.scaleFactor),
+        y: Math.round(b.y * display.scaleFactor),
+        width: Math.round(b.width * display.scaleFactor),
+        height: Math.round(b.height * display.scaleFactor),
+      };
+  const result = await bureaux.place(hwnd, {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+  });
+  if (!result.ok) {
+    return { ...status(), error: result.error || "Impossible de placer cette fenêtre." };
+  }
+  movedHwnd = hwnd;
+  live = {
+    kind: "move",
+    sourceId: request.sourceId,
+    sourceName: request.sourceName,
+    displayId: display.id,
+  };
+  saveSettings({ displayId: display.id });
+
+  clearInterval(aliveTimer);
+  aliveTimer = setInterval(async () => {
+    const check = await bureaux.alive(hwnd);
+    if (check.ok && !check.alive && movedHwnd === hwnd) {
+      clearInterval(aliveTimer);
+      movedHwnd = null;
+      live = null;
+      broadcastStatus();
+      sendToControl("notice", "La fenêtre diffusée a été fermée. Diffusion arrêtée.");
+    }
+  }, ALIVE_CHECK_MS);
+
+  if (controlWindow && !controlWindow.isDestroyed()) controlWindow.focus();
+  broadcastStatus();
+  return status();
+}
+
 function startProjection(request) {
+  if (movedHwnd) {
+    releaseMovedWindow();
+    live = null;
+  }
   const kind = request.kind === "youtube" ? "youtube" : "capture";
   const display = findDisplay(request.displayId) || findDisplay(defaultDisplayId());
   const reuse =
@@ -619,7 +715,9 @@ ipcMain.handle("bureaux:list", async () => {
 
 ipcMain.handle("status:get", () => status());
 
-ipcMain.handle("projection:start", (_event, request) => startProjection(request));
+ipcMain.handle("projection:start", (_event, request) =>
+  shouldPlaceWindow(request) ? startWindowPlacement(request) : startProjection(request)
+);
 
 ipcMain.handle("projection:stop", () => {
   closeProjector();
@@ -774,6 +872,16 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("window-all-closed", () => app.quit());
+
+  // Avant de quitter : la fenêtre diffusée retrouve sa place d'origine.
+  let restored = false;
+  app.on("before-quit", (event) => {
+    if (restored || (!movedHwnd && pendingRestores === 0)) return;
+    event.preventDefault();
+    restored = true;
+    const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+    Promise.race([waitForRestores(), timeout]).finally(() => app.quit());
+  });
 
   app.on("will-quit", () => bureaux.stop());
 }

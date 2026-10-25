@@ -82,5 +82,10 @@ function stop() {
 module.exports = {
   supported,
   list: () => request({ cmd: "list", pid: process.pid }),
+  // Place la fenêtre (HWND) sur le rectangle donné, en vrais pixels.
+  place: (hwnd, rect) => request({ cmd: "place", hwnd: String(hwnd), ...rect }),
+  // La remet exactement comme avant place().
+  restore: (hwnd) => request({ cmd: "restore", hwnd: String(hwnd) }),
+  alive: (hwnd) => request({ cmd: "alive", hwnd: String(hwnd) }),
   stop,
 };

@@ -1,8 +1,11 @@
 // Bureaux virtuels de Windows (Windows + Tab), utilisé par bureaux.ps1.
 // Compilé par PowerShell 5.1 (Add-Type) : C# 5 uniquement.
 //
-// Lecture seule : rien n'est déplacé, épinglé ni activé, la disposition des
-// bureaux et des fenêtres reste intacte.
+// - Lecture : liste des bureaux et des fenêtres (rien n'est modifié).
+// - Diffusion d'une fenêtre (Place / Restore) : la fenêtre choisie est rendue
+//   visible sur le bureau affiché puis placée en plein écran sur l'écran de
+//   projection ; à l'arrêt, elle retrouve exactement sa place d'origine. Aucune
+//   touche ni aucun clic n'est simulé, et la fenêtre n'est jamais activée.
 // - Liste des bureaux : lue dans le registre, tenu à jour par l'Explorateur.
 // - Bureau de chaque fenêtre : IVirtualDesktopManager (API officielle).
 // - Fenêtres « affichées sur tous les bureaux » : IVirtualDesktopPinnedApps
@@ -13,6 +16,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace Diffusion
@@ -81,6 +85,31 @@ namespace Diffusion
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+        [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+        [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr hwnd, ref WINDOWPLACEMENT placement);
+        [DllImport("user32.dll")] static extern bool SetWindowPlacement(IntPtr hwnd, ref WINDOWPLACEMENT placement);
+        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll")] static extern IntPtr SetProcessDpiAwarenessContext(IntPtr context);
+        [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINT { public int X; public int Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct WINDOWPLACEMENT
+        {
+            public int Length;
+            public int Flags;
+            public int ShowCmd;
+            public POINT MinPosition;
+            public POINT MaxPosition;
+            public RECT NormalPosition;
+        }
 
         const uint GW_OWNER = 4;
         const int GWL_EXSTYLE = -20;
@@ -88,6 +117,17 @@ namespace Diffusion
         const int WS_EX_APPWINDOW = 0x40000;
         const int DWMWA_CLOAKED = 14;
         const int DWM_CLOAKED_SHELL = 2; // fenêtre d'un autre bureau
+        const int WS_EX_TOPMOST = 0x8;
+        const int SW_SHOWNORMAL = 1;
+        const int SW_SHOWNOACTIVATE = 4;
+        const uint SWP_NOSIZE = 0x1;
+        const uint SWP_NOMOVE = 0x2;
+        const uint SWP_NOACTIVATE = 0x10;
+        const uint SWP_SHOWWINDOW = 0x40;
+        const uint SWP_NOOWNERZORDER = 0x200;
+        static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
 
         static IVirtualDesktopManager manager;
         static IApplicationViewCollection views;
@@ -324,6 +364,136 @@ namespace Diffusion
                   .Append('}');
             }
             return sb.Append("]}").ToString();
+        }
+
+        // --- Diffusion d'une fenêtre sur l'écran de projection ---------------
+
+        class Saved
+        {
+            public WINDOWPLACEMENT Placement;
+            public RECT Rect;
+            public bool WasPinned;
+            public bool WasTopmost;
+            public Guid Desktop;
+        }
+
+        static readonly Dictionary<long, Saved> saved = new Dictionary<long, Saved>();
+
+        // Coordonnées en vrais pixels, comme celles envoyées par l'application.
+        public static void InitDpi()
+        {
+            try
+            {
+                if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != IntPtr.Zero) return;
+            }
+            catch (EntryPointNotFoundException) { }
+            try { SetProcessDPIAware(); }
+            catch { }
+        }
+
+        static bool SetPinned(IntPtr hwnd, bool pin)
+        {
+            IntPtr view = ViewFor(hwnd);
+            if (view == IntPtr.Zero)
+            {
+                views = null;
+                pinnedApps = null;
+                view = ViewFor(hwnd);
+            }
+            if (view == IntPtr.Zero) return false;
+            try
+            {
+                int pinned;
+                if (pinnedApps.IsViewPinned(view, out pinned) != 0) pinned = 0;
+                if (pin == (pinned != 0)) return true;
+                return (pin ? pinnedApps.PinView(view) : pinnedApps.UnpinView(view)) == 0;
+            }
+            finally
+            {
+                Marshal.Release(view);
+            }
+        }
+
+        // Ramène la fenêtre à l'état « normal » (ni réduite, ni agrandie) sans
+        // l'activer, pour pouvoir lui donner une position et une taille.
+        static void MakeNormal(IntPtr hwnd)
+        {
+            if (!IsIconic(hwnd) && !IsZoomed(hwnd)) return;
+            var wp = new WINDOWPLACEMENT();
+            wp.Length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+            GetWindowPlacement(hwnd, ref wp);
+            wp.Flags = 0;
+            wp.ShowCmd = SW_SHOWNOACTIVATE;
+            SetWindowPlacement(hwnd, ref wp);
+        }
+
+        public static string Place(long handle, int x, int y, int width, int height)
+        {
+            var hwnd = new IntPtr(handle);
+            if (!IsWindow(hwnd)) return "{\"ok\":false,\"error\":\"Cette fenêtre n'existe plus.\"}";
+
+            if (!saved.ContainsKey(handle))
+            {
+                var s = new Saved();
+                s.Placement.Length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+                GetWindowPlacement(hwnd, ref s.Placement);
+                GetWindowRect(hwnd, out s.Rect);
+                s.WasPinned = IsPinned(hwnd);
+                s.WasTopmost = (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+                Guid desktop;
+                s.Desktop = Manager().GetWindowDesktopId(hwnd, out desktop) == 0 ? desktop : Guid.Empty;
+                saved[handle] = s;
+            }
+
+            // Visible depuis le bureau affiché : sinon Windows ne la dessine pas.
+            bool pinned = SetPinned(hwnd, true);
+            MakeNormal(hwnd);
+            // Au-dessus de la barre des tâches de l'écran de projection.
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+            // Certaines applications corrigent leur taille juste après : on insiste une fois.
+            Thread.Sleep(150);
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+            return "{\"ok\":true,\"pinned\":" + (pinned ? "true" : "false") + "}";
+        }
+
+        public static string Restore(long handle)
+        {
+            var hwnd = new IntPtr(handle);
+            Saved s;
+            if (!saved.TryGetValue(handle, out s)) return "{\"ok\":true}";
+            saved.Remove(handle);
+            if (!IsWindow(hwnd)) return "{\"ok\":true}";
+
+            if (!s.WasTopmost)
+            {
+                SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            }
+            // Position et taille d'origine (une fenêtre en plein écran revient
+            // exactement sur son écran), puis son état réduit/agrandi.
+            var r = s.Rect;
+            SetWindowPos(hwnd, IntPtr.Zero, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top,
+                SWP_NOACTIVATE | SWP_NOOWNERZORDER | 0x4 /* SWP_NOZORDER */);
+            if (s.Placement.ShowCmd != SW_SHOWNORMAL)
+            {
+                var wp = s.Placement;
+                SetWindowPlacement(hwnd, ref wp);
+            }
+            if (!s.WasPinned)
+            {
+                SetPinned(hwnd, false);
+                // Retour sur son bureau d'origine (si Windows le permet).
+                if (s.Desktop != Guid.Empty)
+                {
+                    Guid desktop = s.Desktop;
+                    Manager().MoveWindowToDesktop(hwnd, ref desktop);
+                }
+            }
+            return "{\"ok\":true}";
+        }
+
+        public static string Alive(long handle)
+        {
+            return IsWindow(new IntPtr(handle)) ? "{\"ok\":true,\"alive\":true}" : "{\"ok\":true,\"alive\":false}";
         }
     }
 }
