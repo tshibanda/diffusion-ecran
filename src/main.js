@@ -10,6 +10,7 @@ const {
   net,
   systemPreferences,
   shell,
+  clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -17,6 +18,7 @@ const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
 const bureaux = require("./bureaux");
 const foreground = require("./foreground");
+const { createObsServer } = require("./obs/server");
 
 const APP_TITLE = "Diffusion Écran";
 const PROJECTOR_TITLE = "Diffusion Écran — Projection";
@@ -138,7 +140,76 @@ function sendToControl(channel, payload) {
 function broadcastStatus() {
   sendToControl("status", status());
   pushBrowseState();
+  syncRelaySource();
 }
+
+// --- Flux pour OBS Studio ------------------------------------------------------
+// Une fenêtre cachée (obs/relay) compose ce qui est diffusé en 1920×1080 et
+// envoie des images JPEG, servies en MJPEG par obs/server.js. Rien n'est
+// calculé tant qu'OBS n'est pas connecté.
+
+let relayWindow = null;
+let relaySourceKey = null;
+const obs = createObsServer({
+  onClientsChanged: (count) => {
+    if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:clients", count);
+    sendToControl("obs", obsInfo());
+  },
+});
+
+function obsInfo() {
+  return { urls: obs.urls(), clients: obs.clientCount() };
+}
+
+// Ce que le flux doit montrer : la même chose que l'écran de projection.
+function relaySource() {
+  if (!live) return null;
+  if (live.kind === "youtube") {
+    return projectorWindow && !projectorWindow.isDestroyed()
+      ? { sourceId: projectorWindow.getMediaSourceId(), fit: "contain", crop: null }
+      : null;
+  }
+  if (live.kind === "move") return { sourceId: live.sourceId, fit: "contain", crop: null };
+  return { sourceId: live.sourceId, fit: live.fit, crop: live.crop || null };
+}
+
+function syncRelaySource() {
+  if (!relayWindow || relayWindow.isDestroyed()) return;
+  const next = relaySource();
+  const key = JSON.stringify(next);
+  if (key === relaySourceKey) return;
+  relaySourceKey = key;
+  relayWindow.webContents.send("relay:source", next);
+}
+
+function createRelayWindow() {
+  relayWindow = new BrowserWindow({
+    width: 320,
+    height: 180,
+    show: false,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: PRELOAD_PATH,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  relayWindow.webContents.on("did-finish-load", () => {
+    relaySourceKey = null;
+    syncRelaySource();
+    relayWindow.webContents.send("relay:clients", obs.clientCount());
+  });
+  relayWindow.loadFile(path.join(__dirname, "obs", "relay.html"));
+}
+
+ipcMain.on("relay:frame", (event, frame) => {
+  if (relayWindow && event.sender === relayWindow.webContents) obs.pushFrame(Buffer.from(frame));
+});
+
+ipcMain.handle("obs:info", () => obsInfo());
+
+ipcMain.handle("clipboard:write", (_event, text) => clipboard.writeText(String(text)));
 
 // --- Bloqueur de publicités (fenêtre YouTube) ----------------------------
 // Moteur Ghostery chargé avec les listes uBlock Origin + EasyList (pubs,
@@ -858,6 +929,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(ICON_PATH);
     createControlWindow();
+    createRelayWindow();
+    obs.listen().then(() => sendToControl("obs", obsInfo()));
     // Préparé dès le démarrage pour que la première vidéo démarre sans attendre.
     youtubeSession();
 
@@ -886,5 +959,8 @@ if (!app.requestSingleInstanceLock()) {
     Promise.race([waitForRestores(), timeout]).finally(() => app.quit());
   });
 
-  app.on("will-quit", () => bureaux.stop());
+  app.on("will-quit", () => {
+    bureaux.stop();
+    obs.close();
+  });
 }

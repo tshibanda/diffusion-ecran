@@ -167,6 +167,27 @@
           </label>
         </div>
 
+        <div id="obs" class="obs">
+          <div class="obs-head">
+            <h2>OBS Studio</h2>
+            <span id="obs-status" class="obs-status">Non connecté</span>
+          </div>
+          <p class="hint">
+            Le rendu de la diffusion (1920×1080, 30 i/s) est disponible pour OBS sur cet
+            ordinateur. Ajoutez dans OBS une <strong>Source navigateur</strong> (largeur 1920,
+            hauteur 1080) avec cette adresse :
+          </p>
+          <div class="obs-url">
+            <code id="obs-page">…</code>
+            <button class="btn small" data-copy="obs-page">Copier</button>
+          </div>
+          <p class="hint">ou une <strong>Source média</strong> (décochez « Fichier local ») :</p>
+          <div class="obs-url">
+            <code id="obs-stream">…</code>
+            <button class="btn small" data-copy="obs-stream">Copier</button>
+          </div>
+        </div>
+
         <p id="hint" class="hint">
           Laissez la fenêtre diffusée ouverte et non réduite. Sur l'écran de projection, la touche
           Échap arrête la diffusion.

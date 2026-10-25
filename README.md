@@ -65,6 +65,23 @@ derrière d'autres fenêtres).
 - La **télécommande** (lecture/pause, ±10 s, position, volume) apparaît à droite
   pendant la diffusion, avec l'aperçu de ce qui est affiché sur l'écran de projection.
 
+## Flux vidéo pour OBS Studio
+
+Pendant la diffusion, l'application publie le rendu (1920×1080, jusqu'à 30 images par
+seconde) sur cet ordinateur. L'encadré **OBS Studio** de la régie affiche les adresses
+(bouton **Copier**) et indique quand OBS est connecté.
+
+- **Source navigateur** (recommandé) : dans OBS, **+** → **Navigateur**, adresse
+  `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**.
+- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/flux.mjpg`.
+
+Le flux suit exactement l'écran de projection : fenêtre (placée ou zone recadrée), écran
+entier ou vidéo YouTube. Sans diffusion, il est noir. Rien n'est calculé tant qu'OBS
+n'est pas connecté. Le flux ne contient pas le son : ajoutez dans OBS une source
+**Capture audio d'application** (Chrome, ou « Diffusion Écran » pour YouTube) ou la
+capture audio du bureau. Si le port 8765 est déjà pris, l'application en choisit un
+autre (8766, 8767…) et l'affiche dans l'encadré.
+
 ## Installation et mise à jour
 
 Prérequis : [Git](https://git-scm.com) et [Node.js](https://nodejs.org).

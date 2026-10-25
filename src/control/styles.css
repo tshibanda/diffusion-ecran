@@ -361,6 +361,53 @@ select {
   font-size: 12px;
 }
 
+.obs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.obs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.obs .hint {
+  margin: 0;
+}
+
+.obs-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.obs-status.on {
+  color: var(--ok);
+}
+
+.obs-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.obs-url code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  user-select: text;
+}
+
 .empty {
   color: var(--muted);
   text-align: center;
@@ -373,6 +420,11 @@ select {
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+}
+
+/* La colonne défile au lieu d'écraser l'aperçu quand elle est trop haute. */
+.side > * {
+  flex-shrink: 0;
 }
 
 .side h2 {

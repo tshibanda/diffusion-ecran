@@ -36,6 +36,14 @@ contextBridge.exposeInMainWorld("diffusion", {
   onNotice: (cb) => subscribe("notice", cb),
   onDisplaysChanged: (cb) => subscribe("displays-changed", cb),
 
+  // Flux OBS
+  obsInfo: () => ipcRenderer.invoke("obs:info"),
+  onObs: (cb) => subscribe("obs", cb),
+  copyText: (text) => ipcRenderer.invoke("clipboard:write", text),
+  sendRelayFrame: (frame) => ipcRenderer.send("relay:frame", frame),
+  onRelaySource: (cb) => subscribe("relay:source", cb),
+  onRelayClients: (cb) => subscribe("relay:clients", cb),
+
   // Fenêtre de projection
   getCurrent: () => ipcRenderer.invoke("projector:current"),
   onSource: (cb) => subscribe("projector:source", cb),

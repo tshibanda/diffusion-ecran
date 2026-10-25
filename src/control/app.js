@@ -852,6 +852,29 @@ api.onStatus((status) => {
 api.onNotice(showToast);
 api.onDisplaysChanged(refreshDisplays);
 
+// --- Flux OBS --------------------------------------------------------------
+
+function renderObs(info) {
+  if (!info) return;
+  $("obs-page").textContent = info.urls ? info.urls.page : "Indisponible (port occupé)";
+  $("obs-stream").textContent = info.urls ? info.urls.stream : "—";
+  const status = $("obs-status");
+  status.classList.toggle("on", info.clients > 0);
+  status.textContent =
+    info.clients > 0 ? `● OBS connecté${info.clients > 1 ? ` (${info.clients})` : ""}` : "Non connecté";
+}
+
+document.querySelectorAll("[data-copy]").forEach((button) =>
+  button.addEventListener("click", async () => {
+    const text = $(button.dataset.copy).textContent;
+    if (!text.startsWith("http")) return;
+    await api.copyText(text);
+    showToast("Adresse copiée : collez-la dans OBS.");
+  })
+);
+
+api.onObs(renderObs);
+
 // --- Démarrage -----------------------------------------------------------
 
 async function init() {
@@ -864,6 +887,7 @@ async function init() {
   els.banner.hidden = permission === "granted";
 
   await refreshDisplays();
+  renderObs(await api.obsInfo());
   state.status = await api.getStatus();
   await refreshSources();
   renderStatus();
