@@ -43,6 +43,14 @@ main() {
   git branch --set-upstream-to=origin/main main >/dev/null 2>&1
   chmod +x demarrer.command mettre_a_jour.command 2>/dev/null
 
+  echo
+  echo "Installation des dependances (peut prendre quelques minutes la premiere fois)..."
+  if ! npm install --no-audit --no-fund; then
+    echo
+    echo "[ERREUR] npm install a echoue. Consultez le message ci-dessus."
+    pause_and_exit 1
+  fi
+
   # Electron ne telecharge plus son programme pendant npm install : on le
   # fait ici (ne fait rien s'il est deja present et a jour).
   echo
@@ -50,14 +58,6 @@ main() {
   if ! node node_modules/electron/install.js; then
     echo
     echo "[ERREUR] Le telechargement d'Electron a echoue. Verifiez la connexion internet."
-    pause_and_exit 1
-  fi
-
-  echo
-  echo "Installation des dependances (peut prendre quelques minutes la premiere fois)..."
-  if ! npm install --no-audit --no-fund; then
-    echo
-    echo "[ERREUR] npm install a echoue. Consultez le message ci-dessus."
     pause_and_exit 1
   fi
 
