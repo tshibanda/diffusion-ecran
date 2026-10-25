@@ -1,6 +1,7 @@
 // Serveur local du flux OBS (uniquement sur cet ordinateur, 127.0.0.1) :
-//   /           page pour une « Source navigateur » d'OBS
-//   /flux.mjpg  flux vidéo MJPEG pour une « Source média » d'OBS
+//   /           page pour une « Source navigateur » d'OBS (image + son)
+//   /live.webm  flux image + son (WebM VP8/Opus) pour une « Source média »
+//   /flux.mjpg  flux image seule (MJPEG), le plus léger
 //   /image.jpg  dernière image
 const http = require("http");
 const fs = require("fs");
@@ -12,12 +13,15 @@ const LAST_PORT = 8775;
 const BOUNDARY = "diffusionecran";
 const VIEWER = fs.readFileSync(path.join(__dirname, "viewer.html"));
 
-function createObsServer({ onClientsChanged }) {
-  const clients = new Set();
+function createObsServer({ onClientsChanged, onWebmClient }) {
+  const clients = new Set(); // flux MJPEG
+  const webmClients = new Map(); // id -> réponse HTTP
+  let nextWebmId = 1;
   let lastFrame = null;
   let port = null;
 
-  const notify = () => onClientsChanged(clients.size);
+  const counts = () => ({ mjpeg: clients.size, webm: webmClients.size });
+  const notify = () => onClientsChanged(counts());
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
@@ -32,6 +36,23 @@ function createObsServer({ onClientsChanged }) {
       }
       res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
       return res.end(lastFrame);
+    }
+    if (url.pathname === "/live.webm") {
+      res.writeHead(200, {
+        "Content-Type": "video/webm",
+        "Cache-Control": "no-store",
+        Connection: "close",
+      });
+      const id = nextWebmId++;
+      webmClients.set(id, res);
+      req.on("close", () => {
+        webmClients.delete(id);
+        onWebmClient(id, false);
+        notify();
+      });
+      notify();
+      onWebmClient(id, true);
+      return;
     }
     if (url.pathname === "/flux.mjpg") {
       res.writeHead(200, {
@@ -69,6 +90,11 @@ function createObsServer({ onClientsChanged }) {
     for (const client of clients) writeFrame(client, frame);
   }
 
+  function pushChunk(id, chunk) {
+    const res = webmClients.get(id);
+    if (res) res.write(chunk);
+  }
+
   function listen(candidate = FIRST_PORT) {
     return new Promise((resolve) => {
       server.once("error", () => {
@@ -85,13 +111,24 @@ function createObsServer({ onClientsChanged }) {
   return {
     listen,
     pushFrame,
+    pushChunk,
     urls: () =>
       port
-        ? { page: `http://${HOST}:${port}/`, stream: `http://${HOST}:${port}/flux.mjpg` }
+        ? {
+            page: `http://${HOST}:${port}/`,
+            stream: `http://${HOST}:${port}/live.webm`,
+            mjpeg: `http://${HOST}:${port}/flux.mjpg`,
+          }
         : null,
-    clientCount: () => clients.size,
+    counts,
+    // Coupe les flux WebM : les clients se reconnectent (nouvelle qualité).
+    dropWebmClients: () => {
+      for (const res of webmClients.values()) res.end();
+    },
+    clientCount: () => clients.size + webmClients.size,
     close: () => {
       for (const { res } of clients) res.end();
+      for (const res of webmClients.values()) res.end();
       server.close();
     },
   };

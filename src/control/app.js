@@ -862,7 +862,26 @@ function renderObs(info) {
   status.classList.toggle("on", info.clients > 0);
   status.textContent =
     info.clients > 0 ? `● OBS connecté${info.clients > 1 ? ` (${info.clients})` : ""}` : "Non connecté";
+  $("obs-audio").checked = info.audio;
+  $("obs-quality").value = String(info.quality);
+  $("obs-audio-info").textContent = !info.audio
+    ? "Flux sans son."
+    : info.audioSource === "youtube"
+      ? "Son : celui de la vidéo YouTube uniquement."
+      : info.audioSource === "system"
+        ? "Son : celui de l'ordinateur (tout ce qui est joué, dont Chrome). Dans OBS, cochez « Contrôler l'audio via OBS » pour éviter l'écho."
+        : api.platform === "win32"
+          ? "Son : celui de la vidéo YouTube, ou celui de l'ordinateur pour une fenêtre ou un écran."
+          : "Son : celui des vidéos YouTube (onglet YouTube). Sur ce système, le son d'une autre fenêtre ne peut pas être capturé.";
 }
+
+$("obs-quality").addEventListener("change", async () =>
+  renderObs(await api.setObsQuality(Number($("obs-quality").value)))
+);
+
+$("obs-audio").addEventListener("change", async () =>
+  renderObs(await api.setObsAudio($("obs-audio").checked))
+);
 
 document.querySelectorAll("[data-copy]").forEach((button) =>
   button.addEventListener("click", async () => {

@@ -65,22 +65,32 @@ derrière d'autres fenêtres).
 - La **télécommande** (lecture/pause, ±10 s, position, volume) apparaît à droite
   pendant la diffusion, avec l'aperçu de ce qui est affiché sur l'écran de projection.
 
-## Flux vidéo pour OBS Studio
+## Flux vidéo (avec le son) pour OBS Studio
 
-Pendant la diffusion, l'application publie le rendu (1920×1080, jusqu'à 30 images par
-seconde) sur cet ordinateur. L'encadré **OBS Studio** de la régie affiche les adresses
-(bouton **Copier**) et indique quand OBS est connecté.
+Pendant la diffusion, l'application publie le rendu, image et son, sur cet ordinateur.
+L'encadré **OBS Studio** de la régie affiche les adresses (bouton **Copier**) et indique
+quand OBS est connecté.
 
 - **Source navigateur** (recommandé) : dans OBS, **+** → **Navigateur**, adresse
-  `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**.
-- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/flux.mjpg`.
+  `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**, et cochez
+  **« Contrôler l'audio via OBS »** : le son arrive dans la table de mixage d'OBS.
+- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.webm`.
+- `http://127.0.0.1:8765/flux.mjpg` reste disponible pour une image seule, sans son.
 
-Le flux suit exactement l'écran de projection : fenêtre (placée ou zone recadrée), écran
-entier ou vidéo YouTube. Sans diffusion, il est noir. Rien n'est calculé tant qu'OBS
-n'est pas connecté. Le flux ne contient pas le son : ajoutez dans OBS une source
-**Capture audio d'application** (Chrome, ou « Diffusion Écran » pour YouTube) ou la
-capture audio du bureau. Si le port 8765 est déjà pris, l'application en choisit un
-autre (8766, 8767…) et l'affiche dans l'encadré.
+**Le son du flux :**
+- vidéo YouTube (onglet YouTube) : uniquement le son de la vidéo ;
+- fenêtre ou écran (par exemple Chrome), sous Windows : le son de l'ordinateur (tout ce
+  qui est joué). Windows ne permet pas d'isoler simplement le son d'une seule autre
+  application. Sur Mac, seul le son des vidéos YouTube peut être inclus.
+- La case **Inclure le son** permet de le couper.
+- Important : cochez « Contrôler l'audio via OBS » dans la Source navigateur. Sinon la
+  page joue le son sur les haut-parleurs, qui serait capturé à nouveau (écho).
+
+**Qualité :** 1080p par défaut (jusqu'à 30 images par seconde), ou 720p, plus léger
+pour un ordinateur modeste. Le flux a environ une demi-seconde de retard. Sans
+diffusion, il est noir. Rien n'est calculé tant qu'OBS n'est pas connecté. Si le port
+8765 est déjà pris, l'application en choisit un autre (8766, 8767…) et l'affiche dans
+l'encadré.
 
 ## Installation et mise à jour
 

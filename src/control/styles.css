@@ -388,6 +388,29 @@ select {
   color: var(--ok);
 }
 
+.obs-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.obs-options select {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.obs-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.obs-audio input {
+  accent-color: var(--accent);
+}
+
 .obs-url {
   display: flex;
   align-items: center;

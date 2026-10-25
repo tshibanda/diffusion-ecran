@@ -144,22 +144,103 @@ function broadcastStatus() {
 }
 
 // --- Flux pour OBS Studio ------------------------------------------------------
-// Une fenêtre cachée (obs/relay) compose ce qui est diffusé en 1920×1080 et
-// envoie des images JPEG, servies en MJPEG par obs/server.js. Rien n'est
-// calculé tant qu'OBS n'est pas connecté.
+// Une fenêtre cachée (obs/relay) compose ce qui est diffusé en 1920×1080 :
+// images JPEG (flux MJPEG) et enregistrement image + son (flux WebM), servis
+// par obs/server.js. Rien n'est calculé tant qu'OBS n'est pas connecté.
 
 let relayWindow = null;
 let relaySourceKey = null;
+let relayAudioKey = null;
 const obs = createObsServer({
-  onClientsChanged: (count) => {
-    if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:clients", count);
+  onClientsChanged: (counts) => {
+    if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:clients", counts);
+    syncRelayAudio();
     sendToControl("obs", obsInfo());
+  },
+  onWebmClient: (id, start) => {
+    if (relayWindow && !relayWindow.isDestroyed()) {
+      relayWindow.webContents.send("relay:recorder", { id, start });
+    }
   },
 });
 
-function obsInfo() {
-  return { urls: obs.urls(), clients: obs.clientCount() };
+function obsAudioEnabled() {
+  return loadSettings().obsAudio !== false;
 }
+
+function obsQuality() {
+  return loadSettings().obsQuality === 720 ? 720 : 1080;
+}
+
+function obsInfo() {
+  return {
+    urls: obs.urls(),
+    clients: obs.clientCount(),
+    audio: obsAudioEnabled(),
+    audioSource: relayAudioSource(),
+    quality: obsQuality(),
+  };
+}
+
+// Son du flux : celui de la vidéo YouTube (lue par l'application), sinon le
+// son de l'ordinateur (Windows seulement : les autres systèmes ne le permettent pas).
+function relayAudioSource() {
+  if (!live || !obsAudioEnabled()) return null;
+  if (live.kind === "youtube") {
+    return projectorWindow && !projectorWindow.isDestroyed() ? "youtube" : null;
+  }
+  return process.platform === "win32" ? "system" : null;
+}
+
+let pendingAudio = null;
+function syncRelayAudio() {
+  if (!relayWindow || relayWindow.isDestroyed()) return;
+  const mode = obs.clientCount() > 0 ? relayAudioSource() : null;
+  const frame = mode === "youtube" ? projectorWindow.webContents.mainFrame : null;
+  const key = `${mode}:${frame ? frame.processId + "/" + frame.routingId : ""}`;
+  if (key === relayAudioKey) return;
+  relayAudioKey = key;
+  pendingAudio = mode ? { mode, frame } : null;
+  // getDisplayMedia demande un « geste utilisateur » : d'où le second argument.
+  relayWindow.webContents
+    .executeJavaScript(`window.__relayAudio && window.__relayAudio(${!!mode})`, true)
+    .catch(() => {});
+  sendToControl("obs", obsInfo());
+}
+
+// Seule la fenêtre du flux OBS demande une capture : on lui fournit le son
+// choisi ci-dessus (l'image fournie avec est ignorée).
+function handleDisplayMediaRequests() {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    const relayFrame = relayWindow && !relayWindow.isDestroyed() ? relayWindow.webContents.mainFrame : null;
+    const fromRelay =
+      relayFrame &&
+      request.frame &&
+      request.frame.processId === relayFrame.processId &&
+      request.frame.routingId === relayFrame.routingId;
+    if (!fromRelay || !pendingAudio) return callback({});
+    try {
+      const [screenSource] = await desktopCapturer.getSources({ types: ["screen"] });
+      const audio = pendingAudio.mode === "youtube" ? pendingAudio.frame : "loopback";
+      callback({ video: screenSource, audio });
+    } catch {
+      callback({});
+    }
+  });
+}
+
+ipcMain.handle("settings:obs-quality", (_event, height) => {
+  saveSettings({ obsQuality: height === 720 ? 720 : 1080 });
+  if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:quality", obsQuality());
+  obs.dropWebmClients();
+  return obsInfo();
+});
+
+ipcMain.handle("settings:obs-audio", (_event, value) => {
+  saveSettings({ obsAudio: !!value });
+  syncRelayAudio();
+  return obsInfo();
+});
 
 // Ce que le flux doit montrer : la même chose que l'écran de projection.
 function relaySource() {
@@ -180,6 +261,7 @@ function syncRelaySource() {
   if (key === relaySourceKey) return;
   relaySourceKey = key;
   relayWindow.webContents.send("relay:source", next);
+  syncRelayAudio();
 }
 
 function createRelayWindow() {
@@ -193,18 +275,26 @@ function createRelayWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
   relayWindow.webContents.on("did-finish-load", () => {
     relaySourceKey = null;
+    relayAudioKey = null;
     syncRelaySource();
-    relayWindow.webContents.send("relay:clients", obs.clientCount());
+    syncRelayAudio();
+    relayWindow.webContents.send("relay:quality", obsQuality());
+    relayWindow.webContents.send("relay:clients", obs.counts());
   });
   relayWindow.loadFile(path.join(__dirname, "obs", "relay.html"));
 }
 
 ipcMain.on("relay:frame", (event, frame) => {
   if (relayWindow && event.sender === relayWindow.webContents) obs.pushFrame(Buffer.from(frame));
+});
+
+ipcMain.on("relay:chunk", (event, id, chunk) => {
+  if (relayWindow && event.sender === relayWindow.webContents) obs.pushChunk(id, Buffer.from(chunk));
 });
 
 ipcMain.handle("obs:info", () => obsInfo());
@@ -928,6 +1018,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (process.platform === "darwin" && app.dock) app.dock.setIcon(ICON_PATH);
+    handleDisplayMediaRequests();
     createControlWindow();
     createRelayWindow();
     obs.listen().then(() => sendToControl("obs", obsInfo()));

@@ -11,6 +11,7 @@
         background: #000;
         overflow: hidden;
       }
+      video,
       img {
         width: 100%;
         height: 100%;
@@ -20,13 +21,80 @@
     </style>
   </head>
   <body>
-    <img id="flux" src="/flux.mjpg" alt="" />
+    <video id="video" autoplay playsinline></video>
+    <img id="fallback" alt="" hidden />
     <script>
-      // Si l'application redémarre, on se reconnecte tout seul.
-      const img = document.getElementById("flux");
-      img.addEventListener("error", () =>
-        setTimeout(() => (img.src = "/flux.mjpg?" + Date.now()), 1000)
-      );
+      // Image + son en direct (WebM lu au fur et à mesure), en restant au plus
+      // près du direct. Si la lecture est impossible : image seule (MJPEG).
+      const TYPE = 'video/webm; codecs="vp8,opus"';
+      const MAX_DELAY = 0.5; // secondes de retard tolérées avant de rattraper
+      const KEEP = 10; // secondes de vidéo gardées en mémoire
+      const video = document.getElementById("video");
+
+      function fallback() {
+        video.hidden = true;
+        const img = document.getElementById("fallback");
+        img.hidden = false;
+        img.src = "/flux.mjpg?" + Date.now();
+      }
+
+      function start() {
+        if (!window.MediaSource || !MediaSource.isTypeSupported(TYPE)) return fallback();
+        const media = new MediaSource();
+        video.src = URL.createObjectURL(media);
+        media.addEventListener("sourceopen", async () => {
+          const buffer = media.addSourceBuffer(TYPE);
+          buffer.mode = "sequence";
+          const queue = [];
+          const pump = () => {
+            if (buffer.updating || !queue.length) return;
+            // Libère la vidéo déjà jouée (au-delà de KEEP secondes).
+            const oldest = buffer.buffered.length ? buffer.buffered.start(0) : 0;
+            if (video.currentTime - KEEP > oldest + 1) {
+              buffer.remove(0, video.currentTime - KEEP);
+              return;
+            }
+            buffer.appendBuffer(queue.shift());
+          };
+          buffer.addEventListener("updateend", () => {
+            if (buffer.buffered.length) {
+              const end = buffer.buffered.end(buffer.buffered.length - 1);
+              if (end - video.currentTime > MAX_DELAY) video.currentTime = end - 0.1;
+              if (video.paused) video.play().catch(() => {});
+            }
+            pump();
+          });
+          try {
+            const response = await fetch("/live.webm", { cache: "no-store" });
+            const reader = response.body.getReader();
+            for (;;) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              queue.push(value);
+              pump();
+            }
+          } catch {
+            // Application fermée ou redémarrée.
+          }
+          // Reconnexion automatique.
+          setTimeout(() => location.reload(), 1000);
+        });
+      }
+
+      // Images manquantes (ordinateur chargé) : on saute le trou au lieu de
+      // rester figé.
+      setInterval(() => {
+        if (video.readyState >= 3 || !video.buffered.length) return;
+        for (let i = 0; i < video.buffered.length; i++) {
+          const startOf = video.buffered.start(i);
+          if (startOf > video.currentTime) {
+            video.currentTime = startOf + 0.02;
+            break;
+          }
+        }
+      }, 200);
+
+      start();
     </script>
   </body>
 </html>

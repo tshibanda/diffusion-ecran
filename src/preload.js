@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld("diffusion", {
   onObs: (cb) => subscribe("obs", cb),
   copyText: (text) => ipcRenderer.invoke("clipboard:write", text),
   sendRelayFrame: (frame) => ipcRenderer.send("relay:frame", frame),
+  sendRelayChunk: (id, chunk) => ipcRenderer.send("relay:chunk", id, chunk),
+  onRelayRecorder: (cb) => subscribe("relay:recorder", cb),
+  onRelayQuality: (cb) => subscribe("relay:quality", cb),
+  setObsQuality: (height) => ipcRenderer.invoke("settings:obs-quality", height),
+  setObsAudio: (value) => ipcRenderer.invoke("settings:obs-audio", value),
   onRelaySource: (cb) => subscribe("relay:source", cb),
   onRelayClients: (cb) => subscribe("relay:clients", cb),
 

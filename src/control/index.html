@@ -173,9 +173,10 @@
             <span id="obs-status" class="obs-status">Non connecté</span>
           </div>
           <p class="hint">
-            Le rendu de la diffusion (1920×1080, 30 i/s) est disponible pour OBS sur cet
-            ordinateur. Ajoutez dans OBS une <strong>Source navigateur</strong> (largeur 1920,
-            hauteur 1080) avec cette adresse :
+            Le rendu de la diffusion (jusqu'à 30 i/s, avec le son) est disponible pour OBS
+            sur cet ordinateur. Ajoutez dans OBS une <strong>Source navigateur</strong> (largeur
+            1920, hauteur 1080, cochez <strong>« Contrôler l'audio via OBS »</strong>) avec cette
+            adresse :
           </p>
           <div class="obs-url">
             <code id="obs-page">…</code>
@@ -186,6 +187,17 @@
             <code id="obs-stream">…</code>
             <button class="btn small" data-copy="obs-stream">Copier</button>
           </div>
+          <div class="obs-options">
+            <label class="obs-audio">
+              <input id="obs-audio" type="checkbox" checked />
+              <span>Inclure le son</span>
+            </label>
+            <select id="obs-quality" title="Qualité du flux pour OBS">
+              <option value="1080">1080p (1920×1080)</option>
+              <option value="720">720p (plus léger)</option>
+            </select>
+          </div>
+          <p id="obs-audio-info" class="hint"></p>
         </div>
 
         <p id="hint" class="hint">
