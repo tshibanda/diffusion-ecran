@@ -28,6 +28,7 @@ const els = {
   previewPlaceholder: $("preview-placeholder"),
   previewName: $("preview-name"),
   previewWarning: $("preview-warning"),
+  liveNote: $("live-note"),
   browserTip: $("browser-tip"),
   cropLayer: $("crop-layer"),
   cropRect: $("crop-rect"),
@@ -749,6 +750,7 @@ function renderStatus() {
   els.statusText.textContent = status.live
     ? `En direct : ${status.sourceName} → ${status.displayLabel}`
     : "Hors diffusion";
+  els.liveNote.hidden = !(status.live && status.kind === "move" && status.otherDesktop);
   renderAdblock();
   renderSources();
   renderPreview();

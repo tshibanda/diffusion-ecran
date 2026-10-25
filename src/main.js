@@ -120,6 +120,7 @@ function status() {
     displayId: live.displayId,
     displayLabel: display ? display.label : "",
     fit: live.fit,
+    otherDesktop: !!live.otherDesktop,
     // Pour l'aperçu YouTube : la fenêtre de projection elle-même est capturée.
     previewSourceId:
       live.kind === "youtube" && projectorWindow && !projectorWindow.isDestroyed()
@@ -415,6 +416,8 @@ async function startWindowPlacement(request) {
     sourceId: request.sourceId,
     sourceName: request.sourceName,
     displayId: display.id,
+    // Fenêtre d'un autre bureau, affichée sur le bureau actuel le temps de la diffusion.
+    otherDesktop: !!result.otherDesktop,
   };
   saveSettings({ displayId: display.id });
 

@@ -373,6 +373,7 @@ namespace Diffusion
             public WINDOWPLACEMENT Placement;
             public RECT Rect;
             public bool WasPinned;
+            public bool PinnedByUs;
             public bool WasTopmost;
             public Guid Desktop;
         }
@@ -445,15 +446,23 @@ namespace Diffusion
                 saved[handle] = s;
             }
 
-            // Visible depuis le bureau affiché : sinon Windows ne la dessine pas.
-            bool pinned = SetPinned(hwnd, true);
+            // Fenêtre d'un autre bureau : Windows ne la dessine pas tant que ce
+            // bureau n'est pas affiché. Seulement dans ce cas, on la rend visible
+            // ici le temps de la diffusion ; sinon aucun bureau n'est touché.
+            var info = saved[handle];
+            int onCurrent;
+            if (Manager().IsWindowOnCurrentVirtualDesktop(hwnd, out onCurrent) != 0) onCurrent = 1;
+            if (onCurrent == 0 && !info.WasPinned && !info.PinnedByUs)
+            {
+                info.PinnedByUs = SetPinned(hwnd, true);
+            }
             MakeNormal(hwnd);
             // Au-dessus de la barre des tâches de l'écran de projection.
             SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
             // Certaines applications corrigent leur taille juste après : on insiste une fois.
             Thread.Sleep(150);
             SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
-            return "{\"ok\":true,\"pinned\":" + (pinned ? "true" : "false") + "}";
+            return "{\"ok\":true,\"otherDesktop\":" + (info.PinnedByUs ? "true" : "false") + "}";
         }
 
         public static string Restore(long handle)
@@ -478,7 +487,7 @@ namespace Diffusion
                 var wp = s.Placement;
                 SetWindowPlacement(hwnd, ref wp);
             }
-            if (!s.WasPinned)
+            if (s.PinnedByUs)
             {
                 SetPinned(hwnd, false);
                 // Retour sur son bureau d'origine (si Windows le permet).

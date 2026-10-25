@@ -34,6 +34,11 @@ derrière d'autres fenêtres).
   comme avant : position, taille, plein écran, réduite/agrandie et bureau.
 - Aucune touche ni aucun clic n'est simulé, et la fenêtre n'est pas mise au premier
   plan.
+- Fenêtre déjà sur le bureau affiché : aucun bureau n'est touché, elle est seulement
+  placée sur l'écran de projection. Fenêtre d'un autre bureau : Windows ne la dessine pas
+  tant que ce bureau n'est pas affiché ; elle est donc visible sur le bureau actuel le
+  temps de la diffusion, puis retrouve son bureau à l'arrêt. Pour YouTube sans aucun
+  changement, utilisez **Parcourir YouTube**.
 - Si vous tracez une zone sur l'aperçu, la fenêtre reste à sa place et seule la zone
   est copiée sur l'écran de projection : la fenêtre doit alors rester visible sur le
   bureau affiché (Windows ne dessine pas les fenêtres des autres bureaux).
