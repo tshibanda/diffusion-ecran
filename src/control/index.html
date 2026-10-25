@@ -70,6 +70,12 @@
             La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
             l'interface de YouTube. Le son sort de cet ordinateur.
           </p>
+          <p class="hint">
+            Vous préférez utiliser Chrome (compte, playlists…) ? Le « Chrome de diffusion »
+            continue d'afficher la vidéo même sur un autre bureau : diffusez ensuite sa fenêtre
+            depuis l'onglet Fenêtres.
+          </p>
+          <button class="btn small open-diffusion-browser">Ouvrir le Chrome de diffusion</button>
           <p id="adblock" class="adblock"></p>
         </div>
       </section>
@@ -88,11 +94,14 @@
         </div>
         <p id="preview-name" class="preview-name"></p>
         <p id="preview-warning" class="warning" hidden></p>
-        <p id="browser-tip" class="hint" hidden>
-          Vidéo noire dans un navigateur ? Dans Chrome : Paramètres → Système → désactivez
-          « Utiliser l'accélération graphique si elle est disponible », puis relancez Chrome
-          (Edge : même réglage). Pour YouTube, l'onglet YouTube d'ici est encore plus simple.
-        </p>
+        <div id="browser-tip" class="browser-tip" hidden>
+          <p>
+            <strong>Vidéo noire ou figée ?</strong> Un Chrome normal arrête de dessiner sa page
+            dès que sa fenêtre est sur un autre bureau ou cachée. Ouvrez la vidéo dans le
+            « Chrome de diffusion », qui continue de l'afficher, puis diffusez sa fenêtre.
+          </p>
+          <button class="btn small primary open-diffusion-browser">Ouvrir le Chrome de diffusion</button>
+        </div>
 
         <div id="crop-row" class="crop-row" hidden>
           <span id="crop-text">Zone diffusée : fenêtre entière</span>

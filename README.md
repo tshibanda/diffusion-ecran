@@ -38,13 +38,22 @@ derrière d'autres fenêtres).
 - La fenêtre ne doit pas être réduite. Si Windows ne fournit pas son image tant que
   son bureau n'est pas affiché, un message l'indique sous l'aperçu.
 
-### Vidéo noire dans une fenêtre de navigateur
+### Vidéo noire ou figée dans une fenêtre Chrome
 
-Avec l'accélération graphique, Chrome et Edge confient la vidéo directement à la carte
-graphique : elle n'apparaît pas dans l'image de la fenêtre et reste noire à la
-diffusion. Dans Chrome : **Paramètres → Système → désactivez « Utiliser l'accélération
-graphique si elle est disponible »**, puis relancez Chrome (même réglage dans Edge).
-Pour une vidéo YouTube, l'onglet **YouTube** de l'application évite ce problème.
+Chrome arrête de dessiner sa page (et coupe l'image de la vidéo) dès que sa fenêtre
+est sur un autre bureau ou entièrement cachée par une autre fenêtre : la diffusion ne
+reçoit alors qu'une image figée et noire. Ce réglage ne peut être changé qu'au
+lancement de Chrome.
+
+Solution : le bouton **Ouvrir le Chrome de diffusion** (onglet YouTube, ou sous l'aperçu
+quand une fenêtre de navigateur est choisie) ouvre un Chrome séparé qui continue de tout
+afficher. Mettez-y la vidéo (en plein écran si vous voulez), placez-le sur le bureau de
+votre choix et diffusez sa fenêtre depuis l'onglet **Fenêtres**. Il a son propre profil :
+votre Chrome habituel n'est pas modifié, et les connexions faites dans le Chrome de
+diffusion sont gardées. Sans Chrome, Edge est utilisé.
+
+Pour YouTube, l'onglet **YouTube** de l'application reste le plus simple (plein écran
+direct, sans publicité).
 
 ### Diffuser une vidéo YouTube
 

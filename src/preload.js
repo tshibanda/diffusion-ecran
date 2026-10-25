@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("diffusion", {
   youtubeCommand: (action, value) => ipcRenderer.invoke("youtube:command", { action, value }),
   listDesktops: () => ipcRenderer.invoke("bureaux:list"),
   holdForeground: (on) => ipcRenderer.invoke("foreground:hold", on),
+  openDiffusionBrowser: (url) => ipcRenderer.invoke("browser:open-diffusion", url),
   screenPermission: () => ipcRenderer.invoke("permission:screen"),
   openScreenSettings: () => ipcRenderer.invoke("permission:open-settings"),
   onStatus: (cb) => subscribe("status", cb),

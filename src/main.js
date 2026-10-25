@@ -15,6 +15,7 @@ const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
 const bureaux = require("./bureaux");
 const foreground = require("./foreground");
+const { openDiffusionBrowser } = require("./navigateur");
 
 const APP_TITLE = "Diffusion Écran";
 const PROJECTOR_TITLE = "Diffusion Écran — Projection";
@@ -446,6 +447,11 @@ ipcMain.handle("settings:get", () => {
     fit: FIT_MODES.includes(saved.fit) ? saved.fit : "contain",
   };
 });
+
+// Voir navigateur.js : Chrome qui continue de dessiner hors de l'écran.
+ipcMain.handle("browser:open-diffusion", (_event, url) =>
+  openDiffusionBrowser(path.join(app.getPath("userData"), "chrome-diffusion"), url)
+);
 
 // Voir foreground.js : empêche le changement de bureau au début d'une capture.
 ipcMain.handle("foreground:hold", (_event, on) => (on ? foreground.hold() : foreground.unhold()));

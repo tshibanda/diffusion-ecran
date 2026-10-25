@@ -317,6 +317,26 @@ select {
   font-size: 12px;
 }
 
+.browser-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(255, 122, 26, 0.35);
+  font-size: 12px;
+}
+
+.browser-tip p {
+  margin: 0;
+}
+
+.youtube-panel .open-diffusion-browser {
+  align-self: flex-start;
+}
+
 .empty {
   color: var(--muted);
   text-align: center;
