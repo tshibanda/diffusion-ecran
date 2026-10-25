@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:"
+    />
+    <title>Diffusion Écran</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Diffusion Écran</h1>
+      <div id="status" class="status off">
+        <span class="dot"></span>
+        <span id="status-text">Hors diffusion</span>
+      </div>
+    </header>
+
+    <div id="permission-banner" class="banner" hidden>
+      <span>
+        macOS doit autoriser l'application à enregistrer l'écran pour voir le contenu des
+        fenêtres. Activez-la dans Réglages Système, puis relancez l'application.
+      </span>
+      <button id="open-settings" class="btn small">Ouvrir les réglages</button>
+    </div>
+
+    <main class="layout">
+      <section class="panel sources">
+        <div class="panel-head">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-kind="window" role="tab">Fenêtres</button>
+            <button class="tab" data-kind="screen" role="tab">Écrans entiers</button>
+          </div>
+          <input id="search" type="search" placeholder="Rechercher…" />
+          <button id="refresh" class="btn small ghost" title="Actualiser la liste">↻</button>
+        </div>
+        <div id="source-grid" class="grid"></div>
+        <p id="source-empty" class="empty" hidden>Aucune fenêtre trouvée.</p>
+      </section>
+
+      <section class="panel side">
+        <h2>Aperçu</h2>
+        <div class="preview">
+          <video id="preview" autoplay muted playsinline></video>
+          <p id="preview-placeholder" class="preview-placeholder">
+            Choisissez une fenêtre à gauche pour la voir ici.
+          </p>
+        </div>
+        <p id="preview-name" class="preview-name"></p>
+
+        <label class="field">
+          <span>Écran de projection</span>
+          <select id="display"></select>
+        </label>
+        <p id="display-warning" class="warning" hidden></p>
+
+        <label class="field">
+          <span>Cadrage</span>
+          <select id="fit">
+            <option value="contain">Adapter (bandes noires si besoin)</option>
+            <option value="cover">Remplir (recadrer les bords)</option>
+            <option value="fill">Étirer (déformer)</option>
+          </select>
+        </label>
+
+        <div class="actions">
+          <button id="play" class="btn play" disabled>
+            <span class="icon">▶</span> <span id="play-label">Diffuser</span>
+          </button>
+          <button id="stop" class="btn stop" disabled><span class="icon">■</span> Arrêter</button>
+        </div>
+        <p class="hint">
+          Astuce : laissez la fenêtre diffusée ouverte et non réduite. Sur l'écran de projection,
+          la touche Échap arrête la diffusion.
+        </p>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="../capture.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

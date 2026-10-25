@@ -1,0 +1,14 @@
+{
+  "name": "diffusion-ecran",
+  "productName": "Diffusion Écran",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Choisir une fenêtre et la projeter en plein écran sur un second écran.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}
