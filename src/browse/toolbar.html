@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'"
+    />
+    <title>Barre</title>
+    <link rel="stylesheet" href="toolbar.css" />
+  </head>
+  <body>
+    <div class="bar">
+      <button id="back" class="btn icon" title="Précédent">←</button>
+      <button id="forward" class="btn icon" title="Suivant">→</button>
+      <button id="reload" class="btn icon" title="Recharger">⟳</button>
+      <button id="home" class="btn icon" title="Accueil YouTube">⌂</button>
+      <div id="title" class="title"></div>
+      <span id="live" class="live" hidden></span>
+      <button id="stop" class="btn stop" hidden>■ Arrêter</button>
+      <button id="diffuse" class="btn diffuse" disabled>▶ Diffuser cette vidéo</button>
+    </div>
+    <script src="toolbar.js"></script>
+  </body>
+</html>

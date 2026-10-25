@@ -120,6 +120,14 @@
       }
     },
 
+    // Fenêtre « Parcourir YouTube » : uniquement le passage des publicités
+    // (ni plein écran, ni masquage de l'interface).
+    adsOnly() {
+      if (handleConsent()) return;
+      watchPlayer();
+      skipAds();
+    },
+
     state() {
       const v = video();
       if (!v) return { ready: false };

@@ -1,6 +1,8 @@
 const {
   app,
+  BaseWindow,
   BrowserWindow,
+  WebContentsView,
   ipcMain,
   desktopCapturer,
   screen,
@@ -15,7 +17,6 @@ const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
 const bureaux = require("./bureaux");
 const foreground = require("./foreground");
-const { openDiffusionBrowser } = require("./navigateur");
 
 const APP_TITLE = "Diffusion Écran";
 const PROJECTOR_TITLE = "Diffusion Écran — Projection";
@@ -135,6 +136,7 @@ function sendToControl(channel, payload) {
 
 function broadcastStatus() {
   sendToControl("status", status());
+  pushBrowseState();
 }
 
 // --- Bloqueur de publicités (fenêtre YouTube) ----------------------------
@@ -448,10 +450,159 @@ ipcMain.handle("settings:get", () => {
   };
 });
 
-// Voir navigateur.js : Chrome qui continue de dessiner hors de l'écran.
-ipcMain.handle("browser:open-diffusion", (_event, url) =>
-  openDiffusionBrowser(path.join(app.getPath("userData"), "chrome-diffusion"), url)
-);
+// --- Parcourir YouTube --------------------------------------------------------
+// Navigateur YouTube intégré (même session que l'écran de projection : bloqueur
+// de publicités, cookies). On y choisit la vidéo, puis « Diffuser cette vidéo »
+// l'ouvre en plein écran sur l'écran de projection, au même moment.
+//
+// Pourquoi pas simplement capturer la fenêtre de Chrome : Windows ne dessine
+// pas les fenêtres d'un bureau virtuel non affiché, et Chrome arrête de dessiner
+// une fenêtre cachée ; la capture n'en reçoit qu'une image figée et noire.
+// Ici, c'est l'application qui lit la vidéo : elle s'affiche toujours.
+
+const BROWSE_TOOLBAR_HEIGHT = 50;
+const BROWSE_ADS_TICK_MS = 500;
+const YOUTUBE_HOME = "https://www.youtube.com/";
+let browse = null; // { win, toolbar, content }
+
+function browseState() {
+  if (!browse) return null;
+  const wc = browse.content.webContents;
+  const url = wc.getURL();
+  return {
+    url,
+    title: wc.getTitle(),
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
+    isVideo: !!parseYoutubeUrl(url),
+    live: !!live,
+    liveName: live ? live.sourceName : "",
+  };
+}
+
+function pushBrowseState() {
+  if (browse && !browse.toolbar.webContents.isDestroyed()) {
+    browse.toolbar.webContents.send("browse:state", browseState());
+  }
+}
+
+async function openBrowseWindow(startUrl) {
+  if (browse) {
+    browse.win.show();
+    browse.win.focus();
+    if (startUrl) browse.content.webContents.loadURL(startUrl).catch(() => {});
+    return;
+  }
+  await youtubeSession();
+  const area = screen.getDisplayMatching(
+    controlWindow && !controlWindow.isDestroyed()
+      ? controlWindow.getBounds()
+      : screen.getPrimaryDisplay().bounds
+  ).workArea;
+  const width = Math.min(1280, area.width - 60);
+  const height = Math.min(860, area.height - 60);
+  const win = new BaseWindow({
+    x: area.x + Math.round((area.width - width) / 2),
+    y: area.y + Math.round((area.height - height) / 2),
+    width,
+    height,
+    minWidth: 700,
+    minHeight: 450,
+    title: "Diffusion Écran — Parcourir YouTube",
+    icon: ICON_PATH,
+    backgroundColor: "#0f1115",
+    autoHideMenuBar: true,
+  });
+  const toolbar = new WebContentsView({
+    webPreferences: { preload: PRELOAD_PATH, contextIsolation: true, nodeIntegration: false },
+  });
+  const content = new WebContentsView({
+    webPreferences: {
+      partition: YOUTUBE_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.contentView.addChildView(content);
+  win.contentView.addChildView(toolbar);
+  const layout = () => {
+    const { width: w, height: h } = win.getContentBounds();
+    toolbar.setBounds({ x: 0, y: 0, width: w, height: BROWSE_TOOLBAR_HEIGHT });
+    content.setBounds({ x: 0, y: BROWSE_TOOLBAR_HEIGHT, width: w, height: Math.max(0, h - BROWSE_TOOLBAR_HEIGHT) });
+  };
+  layout();
+  win.on("resize", layout);
+
+  browse = { win, toolbar, content };
+  const wc = content.webContents;
+  // Les liens qui voudraient ouvrir une nouvelle fenêtre s'ouvrent ici.
+  wc.setWindowOpenHandler(({ url }) => {
+    wc.loadURL(url).catch(() => {});
+    return { action: "deny" };
+  });
+  for (const event of ["did-navigate", "did-navigate-in-page", "page-title-updated", "did-finish-load"]) {
+    wc.on(event, pushBrowseState);
+  }
+  toolbar.webContents.on("did-finish-load", pushBrowseState);
+  toolbar.webContents.loadFile(path.join(__dirname, "browse", "toolbar.html"));
+  wc.loadURL(startUrl || YOUTUBE_HOME).catch(() => {});
+  // Publicités qui passeraient malgré le bloqueur : coupées et passées.
+  const adsCode = `${PAGE_SCRIPT}\nwindow.__diffusion && window.__diffusion.adsOnly();`;
+  const adsTicker = setInterval(() => {
+    if (!wc.isDestroyed()) wc.executeJavaScript(adsCode).catch(() => {});
+  }, BROWSE_ADS_TICK_MS);
+
+  win.on("closed", () => {
+    clearInterval(adsTicker);
+    browse = null;
+    if (!wc.isDestroyed()) wc.close();
+    if (!toolbar.webContents.isDestroyed()) toolbar.webContents.close();
+  });
+}
+
+// Envoie la vidéo affichée dans « Parcourir YouTube » vers la projection, au
+// moment où elle en est, et met en pause celle de la fenêtre de navigation.
+async function diffuseBrowsedVideo() {
+  if (!browse) return status();
+  const wc = browse.content.webContents;
+  const info = parseYoutubeUrl(wc.getURL());
+  if (!info) return status();
+  let time = 0;
+  try {
+    time = await wc.executeJavaScript(`(() => {
+      const v = document.querySelector("#movie_player video");
+      if (!v) return 0;
+      v.pause();
+      return v.currentTime || 0;
+    })()`);
+  } catch {
+    // Pas de lecteur : on part du début.
+  }
+  const list = new URL(info.watchUrl).searchParams.get("list");
+  let url = `https://www.youtube.com/watch?v=${info.videoId}`;
+  if (list) url += `&list=${encodeURIComponent(list)}`;
+  if (time > 2) url += `&t=${Math.floor(time)}s`;
+  return startProjection({
+    kind: "youtube",
+    url,
+    title: wc.getTitle().replace(/ - YouTube$/, "").replace(/^\(\d+\) /, ""),
+    displayId: defaultDisplayId(),
+  });
+}
+
+ipcMain.handle("browse:open", (_event, url) => openBrowseWindow(url || null));
+
+ipcMain.handle("browse:nav", (_event, action) => {
+  if (!browse) return;
+  const wc = browse.content.webContents;
+  if (action === "back" && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+  else if (action === "forward" && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+  else if (action === "reload") wc.reload();
+  else if (action === "home") wc.loadURL(YOUTUBE_HOME).catch(() => {});
+});
+
+ipcMain.handle("browse:diffuse", () => diffuseBrowsedVideo());
 
 // Voir foreground.js : empêche le changement de bureau au début d'une capture.
 ipcMain.handle("foreground:hold", (_event, on) => (on ? foreground.hold() : foreground.unhold()));

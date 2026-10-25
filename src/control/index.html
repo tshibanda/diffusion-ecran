@@ -49,6 +49,17 @@
         <p id="source-empty" class="empty" hidden>Aucune fenêtre trouvée.</p>
 
         <div id="youtube-panel" class="youtube-panel" hidden>
+          <div class="browse-call">
+            <div>
+              <p class="yt-title">Parcourir YouTube comme dans Chrome</p>
+              <p class="hint">
+                Recherchez et ouvrez la vidéo, puis « ▶ Diffuser cette vidéo » : elle passe en
+                plein écran sur l'écran de projection, au moment où vous en êtes, sans publicité.
+              </p>
+            </div>
+            <button class="btn primary-big open-browse">Parcourir YouTube</button>
+          </div>
+          <p class="or">ou collez directement un lien :</p>
           <label class="field">
             <span>Lien de la vidéo YouTube</span>
             <input
@@ -70,12 +81,7 @@
             La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
             l'interface de YouTube. Le son sort de cet ordinateur.
           </p>
-          <p class="hint">
-            Vous préférez utiliser Chrome (compte, playlists…) ? Le « Chrome de diffusion »
-            continue d'afficher la vidéo même sur un autre bureau : diffusez ensuite sa fenêtre
-            depuis l'onglet Fenêtres.
-          </p>
-          <button class="btn small open-diffusion-browser">Ouvrir le Chrome de diffusion</button>
+
           <p id="adblock" class="adblock"></p>
         </div>
       </section>
@@ -96,11 +102,13 @@
         <p id="preview-warning" class="warning" hidden></p>
         <div id="browser-tip" class="browser-tip" hidden>
           <p>
-            <strong>Vidéo noire ou figée ?</strong> Un Chrome normal arrête de dessiner sa page
-            dès que sa fenêtre est sur un autre bureau ou cachée. Ouvrez la vidéo dans le
-            « Chrome de diffusion », qui continue de l'afficher, puis diffusez sa fenêtre.
+            <strong>Vidéo noire ou figée ?</strong> Windows ne dessine pas les fenêtres d'un
+            bureau qui n'est pas affiché, et Chrome arrête de dessiner une fenêtre cachée : la
+            diffusion ne reçoit alors qu'une image figée. Pour une vidéo YouTube, utilisez
+            « Parcourir YouTube » : c'est l'application qui lit la vidéo, elle s'affiche
+            toujours.
           </p>
-          <button class="btn small primary open-diffusion-browser">Ouvrir le Chrome de diffusion</button>
+          <button class="btn small primary open-browse">Parcourir YouTube</button>
         </div>
 
         <div id="crop-row" class="crop-row" hidden>

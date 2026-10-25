@@ -24,7 +24,12 @@ contextBridge.exposeInMainWorld("diffusion", {
   youtubeCommand: (action, value) => ipcRenderer.invoke("youtube:command", { action, value }),
   listDesktops: () => ipcRenderer.invoke("bureaux:list"),
   holdForeground: (on) => ipcRenderer.invoke("foreground:hold", on),
-  openDiffusionBrowser: (url) => ipcRenderer.invoke("browser:open-diffusion", url),
+  openBrowse: (url) => ipcRenderer.invoke("browse:open", url),
+
+  // Barre de « Parcourir YouTube »
+  browseNav: (action) => ipcRenderer.invoke("browse:nav", action),
+  browseDiffuse: () => ipcRenderer.invoke("browse:diffuse"),
+  onBrowseState: (cb) => subscribe("browse:state", cb),
   screenPermission: () => ipcRenderer.invoke("permission:screen"),
   openScreenSettings: () => ipcRenderer.invoke("permission:open-settings"),
   onStatus: (cb) => subscribe("status", cb),

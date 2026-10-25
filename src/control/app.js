@@ -320,8 +320,8 @@ function wantedPreview() {
 async function renderPreview() {
   const wanted = wantedPreview();
   els.previewName.textContent = wanted.name || "";
-  // Les navigateurs avec accélération graphique affichent la vidéo hors de
-  // l'image de la fenêtre : elle apparaît noire à la capture.
+  // Fenêtre de navigateur : sa vidéo apparaît figée/noire si la fenêtre est
+  // sur un autre bureau ou cachée ; on propose « Parcourir YouTube ».
   els.browserTip.hidden = !(
     wanted.crop && /chrome|edge|brave|opera|firefox|youtube/i.test(wanted.name || "")
   );
@@ -568,18 +568,12 @@ for (const img of [els.ytThumb, els.previewThumb]) {
   img.addEventListener("load", () => (img.style.visibility = ""));
 }
 
-// « Chrome de diffusion » (voir navigateur.js) : ouvre la vidéo du champ
+// « Parcourir YouTube » : navigateur intégré, ouvert sur la vidéo du champ
 // YouTube si elle est renseignée.
-document.querySelectorAll(".open-diffusion-browser").forEach((button) =>
-  button.addEventListener("click", async () => {
-    const url = isYoutubeTab() && state.youtube ? state.youtube.watchUrl : undefined;
-    const result = await api.openDiffusionBrowser(url);
-    showToast(
-      result.ok
-        ? `${result.browser} de diffusion ouvert. Mettez-y la vidéo, puis diffusez sa fenêtre depuis l'onglet Fenêtres.`
-        : result.error
-    );
-  })
+document.querySelectorAll(".open-browse").forEach((button) =>
+  button.addEventListener("click", () =>
+    api.openBrowse(isYoutubeTab() && state.youtube ? state.youtube.watchUrl : undefined)
+  )
 );
 
 els.ytUrl.addEventListener("input", () => {

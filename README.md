@@ -40,23 +40,18 @@ derrière d'autres fenêtres).
 
 ### Vidéo noire ou figée dans une fenêtre Chrome
 
-Chrome arrête de dessiner sa page (et coupe l'image de la vidéo) dès que sa fenêtre
-est sur un autre bureau ou entièrement cachée par une autre fenêtre : la diffusion ne
-reçoit alors qu'une image figée et noire. Ce réglage ne peut être changé qu'au
-lancement de Chrome.
-
-Solution : le bouton **Ouvrir le Chrome de diffusion** (onglet YouTube, ou sous l'aperçu
-quand une fenêtre de navigateur est choisie) ouvre un Chrome séparé qui continue de tout
-afficher. Mettez-y la vidéo (en plein écran si vous voulez), placez-le sur le bureau de
-votre choix et diffusez sa fenêtre depuis l'onglet **Fenêtres**. Il a son propre profil :
-votre Chrome habituel n'est pas modifié, et les connexions faites dans le Chrome de
-diffusion sont gardées. Sans Chrome, Edge est utilisé.
-
-Pour YouTube, l'onglet **YouTube** de l'application reste le plus simple (plein écran
-direct, sans publicité).
+Windows ne dessine pas les fenêtres d'un bureau virtuel qui n'est pas affiché, et Chrome
+arrête de dessiner une fenêtre cachée : la diffusion d'une telle fenêtre ne reçoit
+qu'une image figée et noire (aucun logiciel de capture ne peut faire mieux). Pour
+YouTube, utilisez **Parcourir YouTube** (ci-dessous) : c'est l'application qui lit la
+vidéo, elle s'affiche toujours, quel que soit le bureau affiché.
 
 ### Diffuser une vidéo YouTube
 
+- **Parcourir YouTube** (onglet YouTube) ouvre un navigateur YouTube intégré : recherchez
+  et ouvrez la vidéo comme dans Chrome, puis **▶ Diffuser cette vidéo**. Elle passe en
+  plein écran sur l'écran de projection, au moment où vous en étiez, et se met en pause
+  dans le navigateur. **■ Arrêter** coupe la diffusion.
 - Onglet **YouTube** : collez le lien de la vidéo (Entrée ou **▶ Diffuser**).
 - La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
   l'interface de YouTube. Le son sort de l'ordinateur.
