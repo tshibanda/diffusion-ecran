@@ -56,6 +56,22 @@ if errorlevel 1 (
     goto :fin
 )
 
+REM Electron ne telecharge plus son programme pendant npm install : on le
+REM fait ici (ne fait rien s'il est deja present et a jour).
+echo.
+echo Telechargement du moteur de l'application (Electron) si necessaire...
+node node_modules\electron\install.js
+if errorlevel 1 (
+    echo.
+    echo [ERREUR] Le telechargement d'Electron a echoue. Verifiez la connexion internet.
+    goto :fin
+)
+if not exist "node_modules\electron\dist\electron.exe" (
+    echo.
+    echo [ERREUR] Electron est introuvable apres le telechargement.
+    goto :fin
+)
+
 echo.
 echo Mise a jour terminee. Lancez demarrer.bat.
 
