@@ -1,6 +1,6 @@
 {
   "name": "diffusion-ecran",
-  "productName": "Diffusion Écran",
+  "productName": "Diffusion Ecran",
   "version": "1.0.0",
   "private": true,
   "description": "Choisir une fenêtre et la projeter en plein écran sur un second écran.",
@@ -9,6 +9,9 @@
     "start": "electron ."
   },
   "devDependencies": {
-    "electron": "^33.4.11"
+    "electron": "44.7.0"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.1"
   }
 }

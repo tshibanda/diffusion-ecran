@@ -4,14 +4,17 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://i.ytimg.com; media-src 'self' blob: mediastream:"
     />
     <title>Diffusion Écran</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <h1>Diffusion Écran</h1>
+      <div class="brand">
+        <img src="../assets/icon.png" alt="" class="logo" />
+        <h1>Diffusion Écran</h1>
+      </div>
       <div id="status" class="status off">
         <span class="dot"></span>
         <span id="status-text">Hors diffusion</span>
@@ -32,23 +35,62 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-kind="window" role="tab">Fenêtres</button>
             <button class="tab" data-kind="screen" role="tab">Écrans entiers</button>
+            <button class="tab" data-kind="youtube" role="tab">YouTube</button>
           </div>
           <input id="search" type="search" placeholder="Rechercher…" />
           <button id="refresh" class="btn small ghost" title="Actualiser la liste">↻</button>
         </div>
         <div id="source-grid" class="grid"></div>
         <p id="source-empty" class="empty" hidden>Aucune fenêtre trouvée.</p>
+
+        <div id="youtube-panel" class="youtube-panel" hidden>
+          <label class="field">
+            <span>Lien de la vidéo YouTube</span>
+            <input
+              id="yt-url"
+              type="text"
+              spellcheck="false"
+              placeholder="Collez ici le lien (ex. https://www.youtube.com/watch?v=…)"
+            />
+          </label>
+          <div id="yt-card" class="yt-card" hidden>
+            <img id="yt-thumb" alt="" />
+            <div>
+              <p id="yt-title" class="yt-title"></p>
+              <p id="yt-author" class="yt-author"></p>
+            </div>
+          </div>
+          <p id="yt-error" class="warning" hidden>Ce lien n'est pas une vidéo YouTube.</p>
+          <p class="hint">
+            La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
+            l'interface de YouTube. Le son sort de cet ordinateur.
+          </p>
+          <p id="adblock" class="adblock"></p>
+        </div>
       </section>
 
       <section class="panel side">
         <h2>Aperçu</h2>
-        <div class="preview">
+        <div id="preview-box" class="preview">
           <video id="preview" autoplay muted playsinline></video>
+          <img id="preview-thumb" alt="" hidden />
+          <div id="crop-layer" class="crop-layer" hidden>
+            <div id="crop-rect" class="crop-rect" hidden></div>
+          </div>
           <p id="preview-placeholder" class="preview-placeholder">
             Choisissez une fenêtre à gauche pour la voir ici.
           </p>
         </div>
         <p id="preview-name" class="preview-name"></p>
+
+        <div id="crop-row" class="crop-row" hidden>
+          <span id="crop-text">Zone diffusée : fenêtre entière</span>
+          <button id="crop-reset" class="btn small ghost" hidden>Fenêtre entière</button>
+        </div>
+        <p id="crop-hint" class="hint" hidden>
+          Plein écran d'une partie seulement (ex. la vidéo dans une fenêtre Chrome) : tracez un
+          rectangle sur l'aperçu avec la souris.
+        </p>
 
         <label class="field">
           <span>Écran de projection</span>
@@ -56,7 +98,7 @@
         </label>
         <p id="display-warning" class="warning" hidden></p>
 
-        <label class="field">
+        <label id="fit-field" class="field">
           <span>Cadrage</span>
           <select id="fit">
             <option value="contain">Adapter (bandes noires si besoin)</option>
@@ -71,9 +113,28 @@
           </button>
           <button id="stop" class="btn stop" disabled><span class="icon">■</span> Arrêter</button>
         </div>
-        <p class="hint">
-          Astuce : laissez la fenêtre diffusée ouverte et non réduite. Sur l'écran de projection,
-          la touche Échap arrête la diffusion.
+
+        <div id="remote" class="remote" hidden>
+          <h2>Télécommande YouTube</h2>
+          <p id="remote-ad" class="remote-ad" hidden>Publicité détectée : passage automatique…</p>
+          <input id="remote-seek" type="range" min="0" max="0" step="1" value="0" />
+          <div class="remote-time"><span id="remote-time">0:00</span><span id="remote-duration">0:00</span></div>
+          <div class="remote-buttons">
+            <button class="btn small" data-yt="seek-to" data-value="0" title="Revenir au début">⏮</button>
+            <button class="btn small" data-yt="seek-by" data-value="-10">−10 s</button>
+            <button id="remote-toggle" class="btn small primary" data-yt="toggle">Pause</button>
+            <button class="btn small" data-yt="seek-by" data-value="10">+10 s</button>
+            <button id="remote-mute" class="btn small" data-yt="mute">Couper le son</button>
+          </div>
+          <label class="volume">
+            <span>Volume</span>
+            <input id="remote-volume" type="range" min="0" max="100" step="1" value="100" />
+          </label>
+        </div>
+
+        <p id="hint" class="hint">
+          Laissez la fenêtre diffusée ouverte et non réduite. Sur l'écran de projection, la touche
+          Échap arrête la diffusion.
         </p>
       </section>
     </main>

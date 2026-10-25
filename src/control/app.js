@@ -1,42 +1,72 @@
 const api = window.diffusion;
+const $ = (id) => document.getElementById(id);
 
 const els = {
-  status: document.getElementById("status"),
-  statusText: document.getElementById("status-text"),
-  banner: document.getElementById("permission-banner"),
-  openSettings: document.getElementById("open-settings"),
+  status: $("status"),
+  statusText: $("status-text"),
+  banner: $("permission-banner"),
+  openSettings: $("open-settings"),
   tabs: document.querySelectorAll(".tab"),
-  search: document.getElementById("search"),
-  refresh: document.getElementById("refresh"),
-  grid: document.getElementById("source-grid"),
-  empty: document.getElementById("source-empty"),
-  preview: document.getElementById("preview"),
-  previewPlaceholder: document.getElementById("preview-placeholder"),
-  previewName: document.getElementById("preview-name"),
-  display: document.getElementById("display"),
-  displayWarning: document.getElementById("display-warning"),
-  fit: document.getElementById("fit"),
-  play: document.getElementById("play"),
-  playLabel: document.getElementById("play-label"),
-  stop: document.getElementById("stop"),
-  toast: document.getElementById("toast"),
+  search: $("search"),
+  refresh: $("refresh"),
+  grid: $("source-grid"),
+  empty: $("source-empty"),
+  youtubePanel: $("youtube-panel"),
+  ytUrl: $("yt-url"),
+  ytCard: $("yt-card"),
+  ytThumb: $("yt-thumb"),
+  ytTitle: $("yt-title"),
+  ytAuthor: $("yt-author"),
+  ytError: $("yt-error"),
+  adblock: $("adblock"),
+  previewBox: $("preview-box"),
+  preview: $("preview"),
+  previewThumb: $("preview-thumb"),
+  previewPlaceholder: $("preview-placeholder"),
+  previewName: $("preview-name"),
+  cropLayer: $("crop-layer"),
+  cropRect: $("crop-rect"),
+  cropRow: $("crop-row"),
+  cropText: $("crop-text"),
+  cropReset: $("crop-reset"),
+  cropHint: $("crop-hint"),
+  display: $("display"),
+  displayWarning: $("display-warning"),
+  fitField: $("fit-field"),
+  fit: $("fit"),
+  play: $("play"),
+  playLabel: $("play-label"),
+  stop: $("stop"),
+  remote: $("remote"),
+  remoteAd: $("remote-ad"),
+  remoteSeek: $("remote-seek"),
+  remoteTime: $("remote-time"),
+  remoteDuration: $("remote-duration"),
+  remoteToggle: $("remote-toggle"),
+  remoteMute: $("remote-mute"),
+  remoteVolume: $("remote-volume"),
+  toast: $("toast"),
 };
 
 const SOURCE_REFRESH_MS = 4000;
+const REMOTE_REFRESH_MS = 1000;
+const MIN_CROP = 0.03;
 
 const state = {
   sources: [],
-  kind: "window",
+  kind: "window", // onglet : "window" | "screen" | "youtube"
   filter: "",
-  selected: null, // { id, name }
+  selected: null, // fenêtre ou écran choisi : { id, name }
+  crops: new Map(), // zone recadrée par fenêtre : id -> { x, y, w, h }
+  youtube: null, // vidéo reconnue dans le champ YouTube
   displays: [],
   displayId: null,
   fit: "contain",
   status: { live: false },
 };
 
-let previewStream = null;
-let previewToken = 0;
+const isYoutubeTab = () => state.kind === "youtube";
+const currentCrop = () => (state.selected && state.crops.get(state.selected.id)) || null;
 
 // --- Liste des fenêtres --------------------------------------------------
 
@@ -55,7 +85,7 @@ async function refreshSources() {
 // miniature change) pour ne pas perdre un clic en cours.
 const cards = new Map();
 
-function createCard(source) {
+function createCard() {
   const card = document.createElement("button");
   card.className = "card";
 
@@ -109,7 +139,7 @@ function renderSources() {
   const ordered = visible.map((source) => {
     let card = cards.get(source.id);
     if (!card) {
-      card = createCard(source);
+      card = createCard();
       cards.set(source.id, card);
     }
     updateCard(card, source);
@@ -120,33 +150,79 @@ function renderSources() {
     els.grid.replaceChildren(...ordered);
   }
 
-  els.empty.hidden = visible.length > 0;
+  els.empty.hidden = isYoutubeTab() || visible.length > 0;
   els.empty.textContent =
     state.kind === "window" ? "Aucune fenêtre trouvée." : "Aucun écran trouvé.";
 }
 
+function selectSource(source) {
+  state.selected = { id: source.id, name: source.name };
+  renderSources();
+  renderPreview();
+  updateControls();
+}
+
 // --- Aperçu --------------------------------------------------------------
+// Onglets Fenêtres / Écrans : la fenêtre choisie, en direct.
+// Onglet YouTube : la miniature de la vidéo, puis pendant la diffusion ce
+// qui est réellement affiché sur l'écran de projection.
+
+let previewStream = null;
+let previewFor = null;
+let previewToken = 0;
 
 function stopPreview() {
   previewToken++;
   window.stopStream(previewStream);
   previewStream = null;
+  previewFor = null;
   els.preview.srcObject = null;
 }
 
-async function selectSource(source) {
-  if (state.selected && state.selected.id === source.id && previewStream) return;
-  state.selected = { id: source.id, name: source.name };
-  renderSources();
-  updateControls();
-  stopPreview();
+function setPlaceholder(text) {
+  els.previewPlaceholder.hidden = !text;
+  els.previewPlaceholder.textContent = text || "";
+}
 
+function wantedPreview() {
+  if (isYoutubeTab()) {
+    const { status } = state;
+    if (status.live && status.kind === "youtube" && status.previewSourceId) {
+      return { stream: status.previewSourceId, name: status.sourceName, crop: false };
+    }
+    if (state.youtube) return { thumb: state.youtube.thumbnail, name: state.youtube.title || "" };
+    return { text: "Collez le lien d'une vidéo YouTube à gauche." };
+  }
+  if (state.selected) return { stream: state.selected.id, name: state.selected.name, crop: true };
+  return { text: "Choisissez une fenêtre à gauche pour la voir ici." };
+}
+
+async function renderPreview() {
+  const wanted = wantedPreview();
+  els.previewName.textContent = wanted.name || "";
+  els.cropLayer.hidden = !wanted.crop || !previewStream || previewFor !== wanted.stream;
+
+  if (!wanted.stream) {
+    stopPreview();
+    els.previewThumb.hidden = !wanted.thumb;
+    if (wanted.thumb) els.previewThumb.src = wanted.thumb;
+    setPlaceholder(wanted.thumb ? "" : wanted.text);
+    renderCrop();
+    return;
+  }
+  els.previewThumb.hidden = true;
+  if (previewFor === wanted.stream) {
+    renderCrop();
+    return;
+  }
+
+  stopPreview();
   const token = previewToken;
-  els.previewPlaceholder.hidden = false;
-  els.previewPlaceholder.textContent = "Chargement de l'aperçu…";
-  els.previewName.textContent = source.name;
+  previewFor = wanted.stream;
+  setPlaceholder("Chargement de l'aperçu…");
+  renderCrop();
   try {
-    const stream = await window.captureSource(source.id, {
+    const stream = await window.captureSource(wanted.stream, {
       maxWidth: 1280,
       maxHeight: 720,
       maxFrameRate: 30,
@@ -157,28 +233,247 @@ async function selectSource(source) {
     }
     previewStream = stream;
     els.preview.srcObject = stream;
-    els.previewPlaceholder.hidden = true;
+    setPlaceholder("");
+    els.cropLayer.hidden = !wanted.crop;
     const [track] = stream.getVideoTracks();
     if (track) {
       track.addEventListener("ended", () => {
         if (previewStream !== stream) return;
         stopPreview();
-        els.previewPlaceholder.hidden = false;
-        els.previewPlaceholder.textContent = "Cette fenêtre a été fermée.";
+        els.cropLayer.hidden = true;
+        setPlaceholder("Cette fenêtre a été fermée.");
         refreshSources();
       });
     }
   } catch {
     if (token !== previewToken) return;
-    els.previewPlaceholder.hidden = false;
-    els.previewPlaceholder.textContent = "Impossible d'afficher l'aperçu de cette fenêtre.";
+    setPlaceholder("Impossible d'afficher l'aperçu de cette fenêtre.");
   }
 }
 
-function applyPreviewFit() {
-  els.preview.classList.toggle("fit-cover", state.fit === "cover");
-  els.preview.classList.toggle("fit-fill", state.fit === "fill");
+// --- Zone recadrée (plein écran d'une partie de la fenêtre) ---------------
+
+// Rectangle (en pixels, relatif à l'aperçu) où l'image est réellement
+// dessinée, bandes noires exclues.
+function displayedVideoRect() {
+  const W = els.preview.videoWidth;
+  const H = els.preview.videoHeight;
+  const bw = els.previewBox.clientWidth;
+  const bh = els.previewBox.clientHeight;
+  if (!W || !H) return { left: 0, top: 0, width: bw, height: bh };
+  const scale = Math.min(bw / W, bh / H);
+  const width = W * scale;
+  const height = H * scale;
+  return { left: (bw - width) / 2, top: (bh - height) / 2, width, height };
 }
+
+function drawCropRect(crop) {
+  els.cropRect.hidden = !crop;
+  if (!crop) return;
+  Object.assign(els.cropRect.style, {
+    left: `${crop.x * 100}%`,
+    top: `${crop.y * 100}%`,
+    width: `${crop.w * 100}%`,
+    height: `${crop.h * 100}%`,
+  });
+}
+
+function renderCrop() {
+  const rect = displayedVideoRect();
+  Object.assign(els.cropLayer.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
+  const crop = currentCrop();
+  drawCropRect(crop);
+
+  const show = !isYoutubeTab() && !!state.selected;
+  els.cropRow.hidden = !show;
+  els.cropHint.hidden = !show;
+  els.cropReset.hidden = !crop;
+  const whole = state.kind === "screen" ? "écran entier" : "fenêtre entière";
+  els.cropText.textContent = crop
+    ? `Zone diffusée : partie sélectionnée (${Math.round(crop.w * 100)} × ${Math.round(crop.h * 100)} %)`
+    : `Zone diffusée : ${whole}`;
+  els.cropReset.textContent = state.kind === "screen" ? "Écran entier" : "Fenêtre entière";
+}
+
+function setCrop(crop) {
+  if (!state.selected) return;
+  if (crop) state.crops.set(state.selected.id, crop);
+  else state.crops.delete(state.selected.id);
+  renderCrop();
+  const { status } = state;
+  if (status.live && status.kind === "capture" && status.sourceId === state.selected.id) {
+    api.setCrop(state.selected.id, crop);
+  }
+}
+
+let dragStart = null;
+
+function pointerToFraction(event) {
+  const r = els.cropLayer.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (event.clientX - r.left) / r.width)),
+    y: Math.min(1, Math.max(0, (event.clientY - r.top) / r.height)),
+  };
+}
+
+function rectBetween(a, b) {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    w: Math.abs(a.x - b.x),
+    h: Math.abs(a.y - b.y),
+  };
+}
+
+els.cropLayer.addEventListener("pointerdown", (event) => {
+  dragStart = pointerToFraction(event);
+  els.cropLayer.setPointerCapture(event.pointerId);
+});
+
+els.cropLayer.addEventListener("pointermove", (event) => {
+  if (dragStart) drawCropRect(rectBetween(dragStart, pointerToFraction(event)));
+});
+
+els.cropLayer.addEventListener("pointerup", (event) => {
+  if (!dragStart) return;
+  const rect = rectBetween(dragStart, pointerToFraction(event));
+  dragStart = null;
+  // Un simple clic (sans tracer) ne change rien.
+  if (rect.w >= MIN_CROP && rect.h >= MIN_CROP) setCrop(rect);
+  else renderCrop();
+});
+
+els.cropLayer.addEventListener("pointercancel", () => {
+  dragStart = null;
+  renderCrop();
+});
+
+els.cropReset.addEventListener("click", () => setCrop(null));
+els.preview.addEventListener("loadedmetadata", renderCrop);
+els.preview.addEventListener("resize", renderCrop);
+new ResizeObserver(renderCrop).observe(els.previewBox);
+
+// --- YouTube -------------------------------------------------------------
+
+let ytLookupTimer = null;
+let ytLookupToken = 0;
+
+async function lookupYoutube() {
+  const text = els.ytUrl.value.trim();
+  const token = ++ytLookupToken;
+  if (!text) {
+    state.youtube = null;
+    renderYoutube();
+    return;
+  }
+  const info = await api.youtubeInfo(text);
+  if (token !== ytLookupToken) return;
+  state.youtube = info.ok ? info : null;
+  renderYoutube(!info.ok);
+}
+
+function renderYoutube(invalid = false) {
+  const yt = state.youtube;
+  els.ytCard.hidden = !yt;
+  els.ytError.hidden = !invalid;
+  if (yt) {
+    els.ytThumb.src = yt.thumbnail;
+    els.ytTitle.textContent = yt.title || "Vidéo YouTube";
+    els.ytAuthor.textContent = yt.author || "";
+  }
+  renderPreview();
+  updateControls();
+}
+
+function renderAdblock() {
+  const value = state.status.adblock;
+  els.adblock.className = `adblock ${value || ""}`;
+  els.adblock.textContent =
+    value === "on"
+      ? "🛡 Bloqueur de publicités actif (listes uBlock Origin + EasyList) — les publicités restantes sont passées automatiquement."
+      : value === "off"
+        ? "Bloqueur de publicités indisponible (pas de connexion ?). Les publicités sont tout de même passées automatiquement."
+        : "Bloqueur de publicités : chargement des listes…";
+}
+
+// Miniature introuvable (hors ligne…) : pas d'image cassée.
+for (const img of [els.ytThumb, els.previewThumb]) {
+  img.addEventListener("error", () => (img.style.visibility = "hidden"));
+  img.addEventListener("load", () => (img.style.visibility = ""));
+}
+
+els.ytUrl.addEventListener("input", () => {
+  clearTimeout(ytLookupTimer);
+  ytLookupTimer = setTimeout(lookupYoutube, 350);
+});
+
+els.ytUrl.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  clearTimeout(ytLookupTimer);
+  await lookupYoutube();
+  if (state.youtube) play();
+});
+
+// Télécommande : interroge la vidéo en cours toutes les secondes.
+let seeking = false;
+
+function formatTime(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+async function refreshRemote() {
+  const { status } = state;
+  const active = status.live && status.kind === "youtube";
+  els.remote.hidden = !active;
+  if (!active) return;
+  const yt = await api.youtubeState();
+  if (!yt || !yt.ready) {
+    els.remoteAd.hidden = true;
+    els.remoteTime.textContent = "Chargement…";
+    return;
+  }
+  els.remoteAd.hidden = !yt.ad;
+  els.remoteToggle.textContent = yt.paused ? "▶ Lecture" : "❚❚ Pause";
+  els.remoteMute.textContent = yt.muted ? "Remettre le son" : "Couper le son";
+  if (document.activeElement !== els.remoteVolume) els.remoteVolume.value = String(yt.volume);
+  if (!seeking && !yt.ad) {
+    els.remoteSeek.max = String(Math.floor(yt.duration));
+    els.remoteSeek.value = String(Math.floor(yt.time));
+    els.remoteTime.textContent = formatTime(yt.time);
+    els.remoteDuration.textContent = formatTime(yt.duration);
+  }
+}
+
+els.remote.querySelectorAll("[data-yt]").forEach((button) =>
+  button.addEventListener("click", async () => {
+    await api.youtubeCommand(button.dataset.yt, Number(button.dataset.value || 0));
+    refreshRemote();
+  })
+);
+
+els.remoteSeek.addEventListener("input", () => {
+  seeking = true;
+  els.remoteTime.textContent = formatTime(Number(els.remoteSeek.value));
+});
+
+els.remoteSeek.addEventListener("change", async () => {
+  await api.youtubeCommand("seek-to", Number(els.remoteSeek.value));
+  seeking = false;
+  refreshRemote();
+});
+
+els.remoteVolume.addEventListener("input", () =>
+  api.youtubeCommand("volume", Number(els.remoteVolume.value))
+);
 
 // --- Écrans --------------------------------------------------------------
 
@@ -221,15 +516,44 @@ function updateDisplayWarning() {
 
 // --- Diffusion -----------------------------------------------------------
 
-async function play() {
-  if (!state.selected || state.displayId === null) return;
-  state.status = await api.start({
-    sourceId: state.selected.id,
-    sourceName: state.selected.name,
-    displayId: state.displayId,
-    fit: state.fit,
-  });
+async function start(request) {
+  const result = await api.start({ ...request, displayId: state.displayId });
+  if (result.error) showToast(result.error);
+  state.status = result;
   renderStatus();
+}
+
+function play() {
+  if (state.displayId === null) return;
+  if (isYoutubeTab()) {
+    if (!state.youtube) return;
+    start({ kind: "youtube", url: state.youtube.watchUrl, title: state.youtube.title });
+  } else {
+    if (!state.selected) return;
+    start({
+      kind: "capture",
+      sourceId: state.selected.id,
+      sourceName: state.selected.name,
+      fit: state.fit,
+      crop: currentCrop(),
+    });
+  }
+}
+
+// Changement d'écran pendant la diffusion : on déplace ce qui passe déjà.
+function moveLive() {
+  const { status } = state;
+  if (status.kind === "youtube") {
+    start({ kind: "youtube", url: status.watchUrl, title: status.sourceName });
+  } else {
+    start({
+      kind: "capture",
+      sourceId: status.sourceId,
+      sourceName: status.sourceName,
+      fit: state.fit,
+      crop: state.crops.get(status.sourceId) || null,
+    });
+  }
 }
 
 async function stop() {
@@ -244,15 +568,30 @@ function renderStatus() {
   els.statusText.textContent = status.live
     ? `En direct : ${status.sourceName} → ${status.displayLabel}`
     : "Hors diffusion";
+  renderAdblock();
   renderSources();
+  renderPreview();
   updateControls();
+  refreshRemote();
 }
 
 function updateControls() {
-  const { status, selected } = state;
-  const isLiveSelection =
-    status.live && selected && status.sourceId === selected.id && status.displayId === state.displayId;
-  els.play.disabled = !selected || state.displayId === null || isLiveSelection;
+  const { status } = state;
+  const sameDisplay = status.displayId === state.displayId;
+  let ready;
+  let isLiveSelection;
+  if (isYoutubeTab()) {
+    ready = !!state.youtube;
+    isLiveSelection =
+      status.live && status.kind === "youtube" && ready && status.watchUrl === state.youtube.watchUrl;
+  } else {
+    ready = !!state.selected;
+    isLiveSelection =
+      status.live && status.kind === "capture" && ready && status.sourceId === state.selected.id;
+  }
+  isLiveSelection = isLiveSelection && sameDisplay;
+
+  els.play.disabled = !ready || state.displayId === null || isLiveSelection;
   if (isLiveSelection) els.playLabel.textContent = "En diffusion";
   else if (status.live) els.playLabel.textContent = "Diffuser à la place";
   else els.playLabel.textContent = "Diffuser";
@@ -269,13 +608,27 @@ function showToast(message) {
 
 // --- Événements ----------------------------------------------------------
 
-els.tabs.forEach((tab) =>
-  tab.addEventListener("click", () => {
-    state.kind = tab.dataset.kind;
-    els.tabs.forEach((t) => t.classList.toggle("active", t === tab));
-    renderSources();
-  })
-);
+function setTab(kind) {
+  state.kind = kind;
+  els.tabs.forEach((t) => t.classList.toggle("active", t.dataset.kind === kind));
+  const youtube = isYoutubeTab();
+  els.youtubePanel.hidden = !youtube;
+  els.grid.hidden = youtube;
+  els.search.hidden = youtube;
+  els.refresh.hidden = youtube;
+  els.fitField.hidden = youtube;
+  // La sélection d'une fenêtre ne passe pas d'un onglet à l'autre.
+  if (!youtube && state.selected) {
+    const source = state.sources.find((s) => s.id === state.selected.id);
+    if (!source || source.kind !== kind) state.selected = null;
+  }
+  renderSources();
+  renderPreview();
+  updateControls();
+  if (youtube) els.ytUrl.focus();
+}
+
+els.tabs.forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.kind)));
 
 els.search.addEventListener("input", () => {
   state.filter = els.search.value;
@@ -290,14 +643,12 @@ els.refresh.addEventListener("click", () => {
 els.display.addEventListener("change", () => {
   state.displayId = Number(els.display.value);
   updateDisplayWarning();
-  // Déjà en direct : on déplace la diffusion sur le nouvel écran.
-  if (state.status.live && state.selected) play();
+  if (state.status.live) moveLive();
   else updateControls();
 });
 
 els.fit.addEventListener("change", async () => {
   state.fit = els.fit.value;
-  applyPreviewFit();
   state.status = await api.setFit(state.fit);
   renderStatus();
 });
@@ -320,7 +671,6 @@ async function init() {
   state.displayId = settings.displayId;
   state.fit = settings.fit;
   els.fit.value = state.fit;
-  applyPreviewFit();
 
   const permission = await api.screenPermission();
   els.banner.hidden = permission === "granted";
@@ -333,8 +683,11 @@ async function init() {
   // Les miniatures et la liste des fenêtres ouvertes se mettent à jour
   // toutes seules tant que l'application est visible.
   setInterval(() => {
-    if (!document.hidden) refreshSources();
+    if (!document.hidden && !isYoutubeTab()) refreshSources();
   }, SOURCE_REFRESH_MS);
+  setInterval(() => {
+    if (!document.hidden) refreshRemote();
+  }, REMOTE_REFRESH_MS);
 }
 
 init();

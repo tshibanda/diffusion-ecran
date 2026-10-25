@@ -5,7 +5,8 @@
   --border: #2a2f3a;
   --text: #e8eaf0;
   --muted: #8b92a3;
-  --accent: #4f8cff;
+  --accent: #ff7a1a;
+  --accent-soft: rgba(255, 122, 26, 0.16);
   --live: #e5484d;
   --ok: #30a46c;
   --warn: #f5a524;
@@ -48,6 +49,17 @@ select {
   justify-content: space-between;
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo {
+  width: 28px;
+  height: 28px;
 }
 
 .topbar h1 {
@@ -148,8 +160,8 @@ select {
 }
 
 .tab.active {
-  background: var(--border);
-  color: var(--text);
+  background: var(--accent);
+  color: #fff;
 }
 
 #search {
@@ -275,19 +287,38 @@ select {
   border: 1px solid var(--border);
 }
 
-.preview video {
+.preview video,
+.preview > img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.preview video.fit-cover {
-  object-fit: cover;
+/* Calque posé exactement sur l'image affichée, pour tracer la zone. */
+.crop-layer {
+  position: absolute;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
 }
 
-.preview video.fit-fill {
-  object-fit: fill;
+.crop-rect {
+  position: absolute;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.crop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: -4px;
+  color: var(--muted);
 }
 
 .preview-placeholder {
@@ -355,6 +386,12 @@ select {
   cursor: default;
 }
 
+.btn.small.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .btn.small {
   padding: 6px 12px;
   font-weight: 500;
@@ -409,4 +446,115 @@ select {
   border-radius: 8px;
   padding: 10px 16px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.youtube-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.youtube-panel input[type="text"] {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  user-select: text;
+}
+
+.youtube-panel input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+.yt-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.yt-card img {
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+  background: #000;
+}
+
+.yt-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.yt-author {
+  margin: 0;
+  color: var(--muted);
+}
+
+.adblock {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.adblock.on {
+  color: var(--ok);
+}
+
+.adblock.off {
+  color: var(--warn);
+}
+
+.remote {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.remote-ad {
+  margin: 0;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.remote-time {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin-top: -4px;
+}
+
+.remote-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.remote-buttons .btn {
+  padding: 6px 10px;
+}
+
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.volume input,
+.remote input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
 }
