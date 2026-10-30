@@ -83,11 +83,15 @@ quand OBS est connecté.
   FPS commune : 60**.
 - `http://127.0.0.1:8765/flux.mjpg` reste disponible pour une image seule, sans son.
 
-**Le son du flux :**
+**Le son du flux** (jamais celui des autres fenêtres) :
 - fichier (onglet Fichiers) : uniquement le son du fichier ;
-- fenêtre ou écran (par exemple Chrome), sous Windows : le son de l'ordinateur (tout ce
-  qui est joué). Windows ne permet pas d'isoler simplement le son d'une seule autre
-  application. Sur Mac, seul le son des fichiers peut être inclus.
+- fenêtre, sous Windows : uniquement le son de l'application de cette fenêtre (par
+  exemple Chrome, ses onglets compris), capté par l'API Windows « process loopback »
+  (Windows 10 version 2004 ou plus récent). Si Windows refuse, le flux reste sans son et
+  l'encadré OBS l'indique : il ne bascule jamais sur le son de tout l'ordinateur ;
+- écran entier, sous Windows : le son de l'ordinateur (un écran n'est pas une seule
+  fenêtre) ;
+- sur Mac : seul le son des fichiers peut être inclus.
 - La case **Inclure le son** permet de le couper.
 - Important : cochez « Contrôler l'audio via OBS » dans la Source navigateur. Sinon la
   page joue le son sur les haut-parleurs, qui serait capturé à nouveau (écho).

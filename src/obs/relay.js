@@ -255,6 +255,36 @@ window.__relayAudio = async (enabled) => {
   }
 };
 
+// Son d'une seule fenêtre (Windows) : reçu en continu de l'application
+// (voir son-fenetre.js) et joué dans le flux par pcm-worklet.js.
+let pcmNode = null;
+let pcmOn = false;
+
+async function setPcmMode(on) {
+  pcmOn = on;
+  if (on) {
+    stopAudio();
+    if (!pcmNode) {
+      await audioContext.audioWorklet.addModule("pcm-worklet.js");
+      pcmNode = new AudioWorkletNode(audioContext, "pcm-player", { outputChannelCount: [2] });
+    }
+    if (pcmOn) pcmNode.connect(audioOut);
+    audioContext.resume();
+  } else if (pcmNode) {
+    pcmNode.disconnect();
+  }
+}
+
+api.onRelayPcmMode((on) => setPcmMode(on));
+
+api.onRelayPcm((bytes) => {
+  if (!pcmOn || !pcmNode) return;
+  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+  const samples = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
+  pcmNode.port.postMessage(samples, [samples.buffer]);
+});
+
 // --- Enregistreurs ------------------------------------------------------------------
 
 const outStream = new MediaStream([videoTrack, ...audioOut.stream.getAudioTracks()]);

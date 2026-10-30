@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("diffusion", {
   sendRelayChunk: (id, chunk) => ipcRenderer.send("relay:chunk", id, chunk),
   onRelayRecorder: (cb) => subscribe("relay:recorder", cb),
   onRelayQuality: (cb) => subscribe("relay:quality", cb),
+  onRelayPcmMode: (cb) => subscribe("relay:pcm-mode", cb),
+  onRelayPcm: (cb) => subscribe("relay:pcm", cb),
   setObsQuality: (height) => ipcRenderer.invoke("settings:obs-quality", height),
   setObsAudio: (value) => ipcRenderer.invoke("settings:obs-audio", value),
   onRelaySource: (cb) => subscribe("relay:source", cb),

@@ -15,6 +15,7 @@ const fs = require("fs");
 const fichiers = require("./fichiers");
 const bureaux = require("./bureaux");
 const foreground = require("./foreground");
+const sonFenetre = require("./son-fenetre");
 const { createObsServer } = require("./obs/server");
 
 const APP_TITLE = "Diffusion Écran";
@@ -170,18 +171,26 @@ function obsInfo() {
     clients: obs.clientCount(),
     audio: obsAudioEnabled(),
     audioSource: relayAudioSource(),
+    audioError: windowAudioError,
     quality: obsQuality(),
   };
 }
 
-// Son du flux : celui du fichier (lu par l'application), sinon le son de
-// l'ordinateur (Windows seulement : les autres systèmes ne le permettent pas).
+// Son du flux, jamais celui des autres fenêtres :
+//  - fichier : le son du fichier (lu par l'application) ;
+//  - fenêtre (Windows) : uniquement le son de l'application de cette fenêtre ;
+//  - écran entier (Windows) : le son de l'ordinateur (il n'y a pas une seule
+//    fenêtre) ;
+//  - Mac : pas de son pour une fenêtre ou un écran (le système ne le permet pas).
+let windowAudioError = null;
+
 function relayAudioSource() {
   if (!live || !obsAudioEnabled()) return null;
   if (live.kind === "file") {
     return projectorWindow && !projectorWindow.isDestroyed() ? "file" : null;
   }
-  return process.platform === "win32" ? "system" : null;
+  if (!sonFenetre.supported) return null;
+  return windowHwnd(live.sourceId) ? "window" : "system";
 }
 
 let pendingAudio = null;
@@ -189,14 +198,35 @@ function syncRelayAudio() {
   if (!relayWindow || relayWindow.isDestroyed()) return;
   const mode = obs.clientCount() > 0 ? relayAudioSource() : null;
   const frame = mode === "file" ? projectorWindow.webContents.mainFrame : null;
-  const key = `${mode}:${frame ? frame.processId + "/" + frame.routingId : ""}`;
+  const hwnd = mode === "window" ? windowHwnd(live.sourceId) : null;
+  const key = `${mode}:${frame ? frame.processId + "/" + frame.routingId : ""}:${hwnd || ""}`;
   if (key === relayAudioKey) return;
   relayAudioKey = key;
-  pendingAudio = mode ? { mode, frame } : null;
+  const relay = relayWindow.webContents;
+
+  // Son d'une fenêtre : capturé par l'application elle-même (son-fenetre.js).
+  windowAudioError = null;
+  if (mode === "window") {
+    relay.send("relay:pcm-mode", true);
+    sonFenetre.start(hwnd, {
+      onData: (chunk) => {
+        if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:pcm", chunk);
+      },
+      onError: (message) => {
+        windowAudioError = message;
+        sendToControl("obs", obsInfo());
+      },
+    });
+  } else {
+    sonFenetre.stop();
+    relay.send("relay:pcm-mode", false);
+  }
+
+  // Son d'un fichier ou de l'ordinateur : via la capture de Chromium.
+  const display = mode === "file" || mode === "system";
+  pendingAudio = display ? { mode, frame } : null;
   // getDisplayMedia demande un « geste utilisateur » : d'où le second argument.
-  relayWindow.webContents
-    .executeJavaScript(`window.__relayAudio && window.__relayAudio(${!!mode})`, true)
-    .catch(() => {});
+  relay.executeJavaScript(`window.__relayAudio && window.__relayAudio(${display})`, true).catch(() => {});
   sendToControl("obs", obsInfo());
 }
 
@@ -789,6 +819,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("will-quit", () => {
     bureaux.stop();
+    sonFenetre.stop();
     obs.close();
   });
 }

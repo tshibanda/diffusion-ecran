@@ -981,15 +981,20 @@ function renderObs(info) {
     info.clients > 0 ? `● OBS connecté${info.clients > 1 ? ` (${info.clients})` : ""}` : "Non connecté";
   $("obs-audio").checked = info.audio;
   $("obs-quality").value = String(info.quality);
+  const audioTexts = {
+    file: "Son : uniquement celui du fichier diffusé.",
+    window: info.audioError
+      ? `Son de la fenêtre indisponible : ${info.audioError} (Windows 10 version 2004 ou plus récent nécessaire). Le flux reste sans son, jamais celui des autres fenêtres.`
+      : "Son : uniquement celui de l'application de la fenêtre diffusée (pas celui des autres fenêtres).",
+    system:
+      "Son : celui de l'ordinateur (un écran entier n'est pas une seule fenêtre). Dans OBS, cochez « Contrôler l'audio via OBS » pour éviter l'écho.",
+  };
   $("obs-audio-info").textContent = !info.audio
     ? "Flux sans son."
-    : info.audioSource === "file"
-      ? "Son : celui du fichier diffusé uniquement."
-      : info.audioSource === "system"
-        ? "Son : celui de l'ordinateur (tout ce qui est joué, dont Chrome). Dans OBS, cochez « Contrôler l'audio via OBS » pour éviter l'écho."
-        : api.platform === "win32"
-          ? "Son : celui du fichier diffusé, ou celui de l'ordinateur pour une fenêtre ou un écran."
-          : "Son : celui des fichiers diffusés (onglet Fichiers). Sur ce système, le son d'une autre fenêtre ne peut pas être capturé.";
+    : audioTexts[info.audioSource] ||
+      (api.platform === "win32"
+        ? "Son : uniquement celui du fichier ou de la fenêtre diffusés (celui de l'ordinateur pour un écran entier)."
+        : "Son : celui des fichiers diffusés (onglet Fichiers). Sur ce système, le son d'une fenêtre ne peut pas être capturé.");
 }
 
 $("obs-quality").addEventListener("change", async () =>
