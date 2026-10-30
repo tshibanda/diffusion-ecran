@@ -37,8 +37,7 @@ derrière d'autres fenêtres).
 - Fenêtre déjà sur le bureau affiché : aucun bureau n'est touché, elle est seulement
   placée sur l'écran de projection. Fenêtre d'un autre bureau : Windows ne la dessine pas
   tant que ce bureau n'est pas affiché ; elle est donc visible sur le bureau actuel le
-  temps de la diffusion, puis retrouve son bureau à l'arrêt. Pour YouTube sans aucun
-  changement, utilisez **Parcourir YouTube**.
+  temps de la diffusion, puis retrouve son bureau à l'arrêt.
 - Si vous tracez une zone sur l'aperçu, la fenêtre reste à sa place et seule la zone
   est copiée sur l'écran de projection : la fenêtre doit alors rester visible sur le
   bureau affiché (Windows ne dessine pas les fenêtres des autres bureaux).
@@ -50,20 +49,23 @@ derrière d'autres fenêtres).
 - Cliquez sur un autre bureau pour voir ses fenêtres, puis sur une fenêtre pour la
   diffuser. Cliquer sur **Diffuser** ne fait pas changer de bureau.
 
-### Diffuser une vidéo YouTube
+### Diffuser des fichiers (vidéo, son, image, PDF, PowerPoint)
 
-- **Parcourir YouTube** (onglet YouTube) ouvre un navigateur YouTube intégré : recherchez
-  et ouvrez la vidéo comme dans Chrome, puis **▶ Diffuser cette vidéo**. Elle passe en
-  plein écran sur l'écran de projection, au moment où vous en étiez, et se met en pause
-  dans le navigateur. **■ Arrêter** coupe la diffusion.
-- Onglet **YouTube** : collez le lien de la vidéo (Entrée ou **▶ Diffuser**).
-- La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
-  l'interface de YouTube. Le son sort de l'ordinateur.
-- **Publicités** : bloquées par le moteur Ghostery avec les listes uBlock Origin et
-  EasyList (y compris les règles spéciales YouTube), mises à jour une fois par jour.
-  Si une publicité passe malgré tout, elle est coupée et passée automatiquement.
-- La **télécommande** (lecture/pause, ±10 s, position, volume) apparaît à droite
-  pendant la diffusion, avec l'aperçu de ce qui est affiché sur l'écran de projection.
+- Onglet **Fichiers** : **+ Ajouter des fichiers** (ou glissez-les dans la liste). La
+  liste est gardée d'une fois sur l'autre ; **✕** retire un fichier de la liste sans le
+  supprimer de l'ordinateur.
+- Cliquez sur un fichier pour le prévisualiser, puis **▶ Diffuser** (ou double-clic) :
+  il s'affiche en plein écran sur l'écran de projection, lu par l'application elle-même.
+- **Vidéos et sons** (MP4, MOV, WebM, MKV, MP3, WAV…) : télécommande à droite (lecture /
+  pause, ±10 s, position, volume, lecture en boucle) ; la touche Espace met en pause.
+- **Images** (JPG, PNG, GIF, WebP…).
+- **PDF et présentations** (PowerPoint .pptx/.ppt, LibreOffice .odp) : affichés
+  diapositive par diapositive, nets à la taille de l'écran. **◀ Précédent / Suivant ▶**
+  dans la régie, ou les flèches ← → et Espace du clavier.
+- Les présentations sont converties en images une seule fois (dès qu'elles sont choisies
+  dans la liste) avec **PowerPoint** s'il est installé, sinon **LibreOffice** (gratuit).
+  Les diapositives masquées sont ignorées. Les animations à l'intérieur d'une diapositive
+  et les vidéos intégrées ne sont pas reprises : pour une vidéo, ajoutez-la à part.
 
 ## Flux vidéo (avec le son) pour OBS Studio
 
@@ -71,20 +73,21 @@ Pendant la diffusion, l'application publie le rendu, image et son, sur cet ordin
 L'encadré **OBS Studio** de la régie affiche les adresses (bouton **Copier**) et indique
 quand OBS est connecté.
 
-- **Source navigateur** (recommandé) : dans OBS, **+** → **Navigateur**, adresse
-  `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**, et cochez
-  **« Contrôler l'audio via OBS »** : le son arrive dans la table de mixage d'OBS.
-- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.mp4`
-  (`/live.webm` reste disponible si besoin).
+- **Source média** (recommandé, le plus fluide) : dans OBS, **+** → **Source média**,
+  décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.mp4`.
+- ou **Source navigateur** : adresse `http://127.0.0.1:8765/`, largeur **1920**, hauteur
+  **1080**, et cochez **« Contrôler l'audio via OBS »** : le son arrive dans la table de
+  mixage d'OBS. La page se recharge toute seule quand l'application redémarre ou est mise
+  à jour : inutile de « Rafraîchir le cache de la page » dans OBS.
 - Pour profiter des 60 images par seconde : dans OBS, **Paramètres → Vidéo → Valeur
   FPS commune : 60**.
 - `http://127.0.0.1:8765/flux.mjpg` reste disponible pour une image seule, sans son.
 
 **Le son du flux :**
-- vidéo YouTube (onglet YouTube) : uniquement le son de la vidéo ;
+- fichier (onglet Fichiers) : uniquement le son du fichier ;
 - fenêtre ou écran (par exemple Chrome), sous Windows : le son de l'ordinateur (tout ce
   qui est joué). Windows ne permet pas d'isoler simplement le son d'une seule autre
-  application. Sur Mac, seul le son des vidéos YouTube peut être inclus.
+  application. Sur Mac, seul le son des fichiers peut être inclus.
 - La case **Inclure le son** permet de le couper.
 - Important : cochez « Contrôler l'audio via OBS » dans la Source navigateur. Sinon la
   page joue le son sur les haut-parleurs, qui serait capturé à nouveau (écho).
@@ -93,7 +96,7 @@ quand OBS est connecté.
 léger pour un ordinateur modeste). La vidéo est encodée en H.264, par la carte graphique
 quand elle le permet ; une zone recadrée est capturée en plus haute définition pour
 rester nette. Si l'ordinateur ne suit pas, des images sont sautées plutôt que de prendre
-du retard : passez alors en 720p. Le flux a environ une demi-seconde de retard. Sans
+du retard : passez alors en 720p. Le flux a environ une seconde de retard. Sans
 diffusion, il est noir. Rien n'est calculé tant qu'OBS n'est pas connecté. Si le port
 8765 est déjà pris, l'application en choisit un autre (8766, 8767…) et l'affiche dans
 l'encadré.

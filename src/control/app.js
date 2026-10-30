@@ -14,14 +14,10 @@ const els = {
   desktopList: $("desktop-list"),
   desktopInfo: $("desktop-info"),
   empty: $("source-empty"),
-  youtubePanel: $("youtube-panel"),
-  ytUrl: $("yt-url"),
-  ytCard: $("yt-card"),
-  ytThumb: $("yt-thumb"),
-  ytTitle: $("yt-title"),
-  ytAuthor: $("yt-author"),
-  ytError: $("yt-error"),
-  adblock: $("adblock"),
+  filesPanel: $("files-panel"),
+  filesAdd: $("files-add"),
+  filesList: $("files-list"),
+  filesEmpty: $("files-empty"),
   previewBox: $("preview-box"),
   preview: $("preview"),
   previewThumb: $("preview-thumb"),
@@ -44,7 +40,11 @@ const els = {
   playLabel: $("play-label"),
   stop: $("stop"),
   remote: $("remote"),
-  remoteAd: $("remote-ad"),
+  remoteMedia: $("remote-media"),
+  remoteSlides: $("remote-slides"),
+  remoteSlidesHint: $("remote-slides-hint"),
+  remoteSlide: $("remote-slide"),
+  remoteLoop: $("remote-loop"),
   remoteSeek: $("remote-seek"),
   remoteTime: $("remote-time"),
   remoteDuration: $("remote-duration"),
@@ -55,16 +55,18 @@ const els = {
 };
 
 const SOURCE_REFRESH_MS = 4000;
-const REMOTE_REFRESH_MS = 1000;
 const MIN_CROP = 0.03;
 
 const state = {
   sources: [],
-  kind: "window", // onglet : "window" | "screen" | "youtube"
+  kind: "window", // onglet : "window" | "screen" | "files"
   filter: "",
   selected: null, // fenêtre ou écran choisi : { id, name }
   crops: new Map(), // zone recadrée par fenêtre : id -> { x, y, w, h }
-  youtube: null, // vidéo reconnue dans le champ YouTube
+  files: [], // fichiers de la liste (voir fichiers.js : describe)
+  selectedFile: null, // chemin du fichier choisi
+  prepared: new Map(), // chemin -> { pending } | { ok, slides } | { error }
+  media: null, // état renvoyé par l'écran de projection (lecture, diapositive)
   displays: [],
   displayId: null,
   fit: "contain",
@@ -76,7 +78,7 @@ const state = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const isYoutubeTab = () => state.kind === "youtube";
+const isFilesTab = () => state.kind === "files";
 // Windows : « Diffuser » place la fenêtre elle-même sur l'écran de projection.
 const placesWindows = () => api.platform === "win32";
 const currentCrop = () => (state.selected && state.crops.get(state.selected.id)) || null;
@@ -173,7 +175,7 @@ function renderSources() {
     els.grid.replaceChildren(...ordered);
   }
 
-  els.empty.hidden = isYoutubeTab() || visible.length > 0;
+  els.empty.hidden = isFilesTab() || visible.length > 0;
   els.empty.textContent =
     state.kind === "window" ? "Aucune fenêtre trouvée." : "Aucun écran trouvé.";
 }
@@ -280,7 +282,7 @@ function selectSource(source) {
 
 // --- Aperçu --------------------------------------------------------------
 // Onglets Fenêtres / Écrans : la fenêtre choisie, en direct.
-// Onglet YouTube : la miniature de la vidéo, puis pendant la diffusion ce
+// Onglet Fichiers : un aperçu du fichier choisi, puis pendant la diffusion ce
 // qui est réellement affiché sur l'écran de projection.
 
 let previewStream = null;
@@ -293,6 +295,10 @@ function stopPreview() {
   previewStream = null;
   previewFor = null;
   els.preview.srcObject = null;
+  if (els.preview.hasAttribute("src")) {
+    els.preview.removeAttribute("src");
+    els.preview.load();
+  }
 }
 
 function setPlaceholder(text) {
@@ -301,13 +307,17 @@ function setPlaceholder(text) {
 }
 
 function wantedPreview() {
-  if (isYoutubeTab()) {
+  if (isFilesTab()) {
     const { status } = state;
-    if (status.live && status.kind === "youtube" && status.previewSourceId) {
+    const file = selectedFile();
+    const liveFile = status.live && status.kind === "file" && status.previewSourceId;
+    if (liveFile && (!file || file.path === status.file.path)) {
       return { stream: status.previewSourceId, name: status.sourceName, crop: false };
     }
-    if (state.youtube) return { thumb: state.youtube.thumbnail, name: state.youtube.title || "" };
-    return { text: "Collez le lien d'une vidéo YouTube à gauche." };
+    if (!file) return { text: "Choisissez un fichier à gauche pour le voir ici." };
+    if (file.type === "image") return { thumb: file.url, name: file.name };
+    if (file.type === "video") return { fileVideo: file.url, name: file.name };
+    return { text: fileStatusText(file), name: file.name };
   }
   if (state.selected) {
     return {
@@ -324,7 +334,7 @@ async function renderPreview() {
   const wanted = wantedPreview();
   els.previewName.textContent = wanted.name || "";
   // Fenêtre de navigateur : sa vidéo apparaît figée/noire si la fenêtre est
-  // sur un autre bureau ou cachée ; on propose « Parcourir YouTube ».
+  // sur un autre bureau ou cachée ; on propose l'onglet Fichiers.
   // Sous Windows, une fenêtre entière est placée elle-même sur l'écran de
   // projection : le problème n'existe que pour une zone recadrée (capture).
   els.browserTip.hidden = !(
@@ -335,6 +345,17 @@ async function renderPreview() {
   if (previewFor !== wanted.stream) els.previewWarning.hidden = true;
   els.cropLayer.hidden = !wanted.crop || !previewStream || previewFor !== wanted.stream;
 
+  if (wanted.fileVideo) {
+    // Vidéo pas encore diffusée : lue sans le son dans l'aperçu.
+    if (els.preview.getAttribute("src") !== wanted.fileVideo) {
+      stopPreview();
+      els.preview.src = wanted.fileVideo;
+    }
+    els.previewThumb.hidden = true;
+    setPlaceholder("");
+    renderCrop();
+    return;
+  }
   if (!wanted.stream) {
     stopPreview();
     els.previewThumb.hidden = !wanted.thumb;
@@ -457,7 +478,7 @@ function renderCrop() {
   const crop = currentCrop();
   drawCropRect(crop);
 
-  const show = !isYoutubeTab() && !!state.selected;
+  const show = !isFilesTab() && !!state.selected;
   els.cropRow.hidden = !show;
   els.cropHint.hidden = !show;
   els.cropHint.textContent =
@@ -532,76 +553,141 @@ els.preview.addEventListener("loadedmetadata", renderCrop);
 els.preview.addEventListener("resize", renderCrop);
 new ResizeObserver(renderCrop).observe(els.previewBox);
 
-// --- YouTube -------------------------------------------------------------
+// --- Fichiers --------------------------------------------------------------
 
-let ytLookupTimer = null;
-let ytLookupToken = 0;
+const FILE_TYPES = {
+  video: { icon: "🎬", label: "Vidéo" },
+  audio: { icon: "🎵", label: "Son" },
+  image: { icon: "🖼", label: "Image" },
+  pdf: { icon: "📄", label: "PDF" },
+  presentation: { icon: "📊", label: "Présentation" },
+};
 
-async function lookupYoutube() {
-  const text = els.ytUrl.value.trim();
-  const token = ++ytLookupToken;
-  if (!text) {
-    state.youtube = null;
-    renderYoutube();
-    return;
-  }
-  const info = await api.youtubeInfo(text);
-  if (token !== ytLookupToken) return;
-  state.youtube = info.ok ? info : null;
-  renderYoutube(!info.ok);
+const selectedFile = () => state.files.find((f) => f.path === state.selectedFile) || null;
+const hasSlides = (file) => file.type === "pdf" || file.type === "presentation";
+
+function fileStatusText(file) {
+  const label = FILE_TYPES[file.type].label;
+  if (!hasSlides(file)) return label;
+  const prep = state.prepared.get(file.path);
+  if (!prep || prep.pending) return file.type === "presentation" ? `${label} · conversion en cours…` : label;
+  if (prep.error) return `${label} · ${prep.error}`;
+  return `${label} · prête`;
 }
 
-function renderYoutube(invalid = false) {
-  const yt = state.youtube;
-  els.ytCard.hidden = !yt;
-  els.ytError.hidden = !invalid;
-  if (yt) {
-    els.ytThumb.src = yt.thumbnail;
-    els.ytTitle.textContent = yt.title || "Vidéo YouTube";
-    els.ytAuthor.textContent = yt.author || "";
-  }
+function renderFiles() {
+  const live = state.status.live && state.status.kind === "file" ? state.status.file.path : null;
+  els.filesEmpty.hidden = state.files.length > 0;
+  els.filesList.replaceChildren(
+    ...state.files.map((file) => {
+      const li = document.createElement("li");
+      li.className = "file-item";
+      li.classList.toggle("selected", file.path === state.selectedFile);
+      li.classList.toggle("live", file.path === live);
+      li.title = file.path;
+
+      const icon = document.createElement("span");
+      icon.className = "file-icon";
+      icon.textContent = FILE_TYPES[file.type].icon;
+      const text = document.createElement("div");
+      text.className = "file-text";
+      const name = document.createElement("div");
+      name.className = "file-name";
+      name.textContent = file.name;
+      const type = document.createElement("div");
+      type.className = "file-type";
+      type.textContent = fileStatusText(file);
+      text.append(name, type);
+      li.append(icon, text);
+
+      if (file.path === live) {
+        const badge = document.createElement("span");
+        badge.className = "file-badge";
+        badge.textContent = "EN DIRECT";
+        li.append(badge);
+      }
+      const remove = document.createElement("button");
+      remove.className = "file-remove";
+      remove.title = "Retirer de la liste (le fichier n'est pas supprimé)";
+      remove.textContent = "✕";
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeFile(file.path);
+      });
+      li.append(remove);
+
+      li.addEventListener("click", () => selectFile(file.path));
+      li.addEventListener("dblclick", () => {
+        selectFile(file.path);
+        play();
+      });
+      return li;
+    })
+  );
+}
+
+// Les présentations sont converties dès qu'elles sont choisies : la diffusion
+// démarre ensuite sans attendre.
+async function prepareFile(file) {
+  if (!hasSlides(file) || state.prepared.has(file.path)) return;
+  state.prepared.set(file.path, { pending: true });
+  renderFiles();
+  const result = await api.prepareFile(file.path);
+  state.prepared.set(file.path, result.ok ? { ok: true, slides: result.slides } : { error: result.error });
+  renderFiles();
+  if (state.selectedFile === file.path) renderPreview();
+}
+
+function selectFile(filePath) {
+  state.selectedFile = filePath;
+  const file = selectedFile();
+  if (file) prepareFile(file);
+  renderFiles();
   renderPreview();
   updateControls();
 }
 
-function renderAdblock() {
-  const value = state.status.adblock;
-  els.adblock.className = `adblock ${value || ""}`;
-  els.adblock.textContent =
-    value === "on"
-      ? "🛡 Bloqueur de publicités actif (listes uBlock Origin + EasyList) — les publicités restantes sont passées automatiquement."
-      : value === "off"
-        ? "Bloqueur de publicités indisponible (pas de connexion ?). Les publicités sont tout de même passées automatiquement."
-        : "Bloqueur de publicités : chargement des listes…";
+function addFiles(items) {
+  const known = new Set(state.files.map((f) => f.path));
+  const added = items.filter((item) => !known.has(item.path));
+  if (!added.length) return;
+  state.files.push(...added);
+  api.saveFiles(state.files.map((f) => f.path));
+  selectFile(added[0].path);
 }
 
-// Miniature introuvable (hors ligne…) : pas d'image cassée.
-for (const img of [els.ytThumb, els.previewThumb]) {
-  img.addEventListener("error", () => (img.style.visibility = "hidden"));
-  img.addEventListener("load", () => (img.style.visibility = ""));
+function removeFile(filePath) {
+  state.files = state.files.filter((f) => f.path !== filePath);
+  if (state.selectedFile === filePath) state.selectedFile = null;
+  api.saveFiles(state.files.map((f) => f.path));
+  renderFiles();
+  renderPreview();
+  updateControls();
 }
 
-// « Parcourir YouTube » : navigateur intégré, ouvert sur la vidéo du champ
-// YouTube si elle est renseignée.
-document.querySelectorAll(".open-browse").forEach((button) =>
-  button.addEventListener("click", () =>
-    api.openBrowse(isYoutubeTab() && state.youtube ? state.youtube.watchUrl : undefined)
-  )
-);
+els.filesAdd.addEventListener("click", async () => addFiles(await api.pickFiles()));
 
-els.ytUrl.addEventListener("input", () => {
-  clearTimeout(ytLookupTimer);
-  ytLookupTimer = setTimeout(lookupYoutube, 350);
+// Glisser-déposer des fichiers depuis l'Explorateur / le Finder.
+els.filesPanel.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  els.filesPanel.classList.add("dragging");
+});
+els.filesPanel.addEventListener("dragleave", () => els.filesPanel.classList.remove("dragging"));
+els.filesPanel.addEventListener("drop", async (event) => {
+  event.preventDefault();
+  els.filesPanel.classList.remove("dragging");
+  const paths = [...event.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean);
+  const items = await api.describeFiles(paths);
+  if (items.length < paths.length) showToast("Certains fichiers ne sont pas pris en charge.");
+  addFiles(items);
 });
 
-els.ytUrl.addEventListener("keydown", async (event) => {
-  if (event.key !== "Enter") return;
-  clearTimeout(ytLookupTimer);
-  await lookupYoutube();
-  if (state.youtube) play();
-});
+// Miniature introuvable : pas d'image cassée.
+els.previewThumb.addEventListener("error", () => (els.previewThumb.style.visibility = "hidden"));
+els.previewThumb.addEventListener("load", () => (els.previewThumb.style.visibility = ""));
 
-// Télécommande : interroge la vidéo en cours toutes les secondes.
+// --- Télécommande (fichier diffusé) --------------------------------------------
+
 let seeking = false;
 
 function formatTime(seconds) {
@@ -612,34 +698,35 @@ function formatTime(seconds) {
   return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-async function refreshRemote() {
-  const { status } = state;
-  const active = status.live && status.kind === "youtube";
+function renderRemote() {
+  const { status, media } = state;
+  const active = status.live && status.kind === "file" && !!media && media.type !== "image";
   els.remote.hidden = !active;
   if (!active) return;
-  const yt = await api.youtubeState();
-  if (!yt || !yt.ready) {
-    els.remoteAd.hidden = true;
-    els.remoteTime.textContent = "Chargement…";
+  const slides = media.type === "slides";
+  els.remoteMedia.hidden = slides;
+  els.remoteSlides.hidden = !slides;
+  els.remoteSlidesHint.hidden = !slides;
+  if (slides) {
+    els.remoteSlide.textContent = `${media.index + 1} / ${media.count}`;
     return;
   }
-  els.remoteAd.hidden = !yt.ad;
-  els.remoteToggle.textContent = yt.paused ? "▶ Lecture" : "❚❚ Pause";
-  els.remoteMute.textContent = yt.muted ? "Remettre le son" : "Couper le son";
-  if (document.activeElement !== els.remoteVolume) els.remoteVolume.value = String(yt.volume);
-  if (!seeking && !yt.ad) {
-    els.remoteSeek.max = String(Math.floor(yt.duration));
-    els.remoteSeek.value = String(Math.floor(yt.time));
-    els.remoteTime.textContent = formatTime(yt.time);
-    els.remoteDuration.textContent = formatTime(yt.duration);
+  els.remoteToggle.textContent = media.paused || media.ended ? "▶ Lecture" : "❚❚ Pause";
+  els.remoteMute.textContent = media.muted ? "Remettre le son" : "Couper le son";
+  els.remoteLoop.checked = media.loop;
+  if (document.activeElement !== els.remoteVolume) els.remoteVolume.value = String(media.volume);
+  if (!seeking) {
+    els.remoteSeek.max = String(media.duration || 0);
+    els.remoteSeek.value = String(media.time);
+    els.remoteTime.textContent = formatTime(media.time);
+    els.remoteDuration.textContent = formatTime(media.duration);
   }
 }
 
-els.remote.querySelectorAll("[data-yt]").forEach((button) =>
-  button.addEventListener("click", async () => {
-    await api.youtubeCommand(button.dataset.yt, Number(button.dataset.value || 0));
-    refreshRemote();
-  })
+els.remote.querySelectorAll("[data-media]").forEach((button) =>
+  button.addEventListener("click", () =>
+    api.mediaCommand(button.dataset.media, Number(button.dataset.value || 0))
+  )
 );
 
 els.remoteSeek.addEventListener("input", () => {
@@ -648,14 +735,40 @@ els.remoteSeek.addEventListener("input", () => {
 });
 
 els.remoteSeek.addEventListener("change", async () => {
-  await api.youtubeCommand("seek-to", Number(els.remoteSeek.value));
+  await api.mediaCommand("seek-to", Number(els.remoteSeek.value));
   seeking = false;
-  refreshRemote();
 });
 
 els.remoteVolume.addEventListener("input", () =>
-  api.youtubeCommand("volume", Number(els.remoteVolume.value))
+  api.mediaCommand("volume", Number(els.remoteVolume.value))
 );
+
+els.remoteLoop.addEventListener("change", () => api.mediaCommand("loop", els.remoteLoop.checked ? 1 : 0));
+
+// Clavier de la régie : diapositive suivante / précédente, lecture / pause.
+document.addEventListener("keydown", (event) => {
+  const { status, media } = state;
+  if (!status.live || status.kind !== "file" || !media) return;
+  if (event.target.closest("input, select, textarea")) return;
+  const key = event.key;
+  if (media.type === "slides") {
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(key)) api.mediaCommand("next");
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(key)) api.mediaCommand("prev");
+    else if (key === "Home") api.mediaCommand("goto", 0);
+    else if (key === "End") api.mediaCommand("goto", media.count - 1);
+    else return;
+  } else if (media.type === "media" && key === " ") {
+    api.mediaCommand("toggle");
+  } else {
+    return;
+  }
+  event.preventDefault();
+});
+
+api.onMediaState((media) => {
+  state.media = media;
+  renderRemote();
+});
 
 // --- Écrans --------------------------------------------------------------
 
@@ -707,9 +820,13 @@ async function start(request) {
 
 function play() {
   if (state.displayId === null) return;
-  if (isYoutubeTab()) {
-    if (!state.youtube) return;
-    start({ kind: "youtube", url: state.youtube.watchUrl, title: state.youtube.title });
+  if (isFilesTab()) {
+    const file = selectedFile();
+    if (!file) return;
+    if (file.type === "presentation" && state.prepared.get(file.path)?.pending) {
+      showToast("Conversion de la présentation en cours, la diffusion démarre dès qu'elle est prête…");
+    }
+    start({ kind: "file", path: file.path, fit: state.fit });
   } else {
     if (!state.selected) return;
     start({
@@ -725,8 +842,8 @@ function play() {
 // Changement d'écran pendant la diffusion : on déplace ce qui passe déjà.
 function moveLive() {
   const { status } = state;
-  if (status.kind === "youtube") {
-    start({ kind: "youtube", url: status.watchUrl, title: status.sourceName });
+  if (status.kind === "file") {
+    start({ kind: "file", path: status.file.path, fit: state.fit });
   } else {
     start({
       kind: "capture",
@@ -751,11 +868,12 @@ function renderStatus() {
     ? `En direct : ${status.sourceName} → ${status.displayLabel}`
     : "Hors diffusion";
   els.liveNote.hidden = !(status.live && status.kind === "move" && status.otherDesktop);
-  renderAdblock();
+  if (!(status.live && status.kind === "file")) state.media = null;
   renderSources();
+  renderFiles();
   renderPreview();
   updateControls();
-  refreshRemote();
+  renderRemote();
 }
 
 function updateControls() {
@@ -763,10 +881,10 @@ function updateControls() {
   const sameDisplay = status.displayId === state.displayId;
   let ready;
   let isLiveSelection;
-  if (isYoutubeTab()) {
-    ready = !!state.youtube;
-    isLiveSelection =
-      status.live && status.kind === "youtube" && ready && status.watchUrl === state.youtube.watchUrl;
+  if (isFilesTab()) {
+    const file = selectedFile();
+    ready = !!file;
+    isLiveSelection = status.live && status.kind === "file" && ready && status.file.path === file.path;
   } else {
     ready = !!state.selected;
     isLiveSelection =
@@ -797,23 +915,22 @@ function showToast(message) {
 function setTab(kind) {
   state.kind = kind;
   els.tabs.forEach((t) => t.classList.toggle("active", t.dataset.kind === kind));
-  const youtube = isYoutubeTab();
-  els.youtubePanel.hidden = !youtube;
-  els.grid.hidden = youtube;
-  els.search.hidden = youtube;
-  els.refresh.hidden = youtube;
-  els.fitField.hidden = youtube;
+  const files = isFilesTab();
+  els.filesPanel.hidden = !files;
+  els.grid.hidden = files;
+  els.search.hidden = files;
+  els.refresh.hidden = files;
   // La sélection d'une fenêtre ne passe pas d'un onglet à l'autre.
-  if (!youtube && state.selected) {
+  if (!files && state.selected) {
     const source = [...state.sources, ...otherDesktopSources()].find(
       (s) => s.id === state.selected.id
     );
     if (!source || source.kind !== kind) state.selected = null;
   }
   renderSources();
+  renderFiles();
   renderPreview();
   updateControls();
-  if (youtube) els.ytUrl.focus();
 }
 
 els.tabs.forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.kind)));
@@ -866,13 +983,13 @@ function renderObs(info) {
   $("obs-quality").value = String(info.quality);
   $("obs-audio-info").textContent = !info.audio
     ? "Flux sans son."
-    : info.audioSource === "youtube"
-      ? "Son : celui de la vidéo YouTube uniquement."
+    : info.audioSource === "file"
+      ? "Son : celui du fichier diffusé uniquement."
       : info.audioSource === "system"
         ? "Son : celui de l'ordinateur (tout ce qui est joué, dont Chrome). Dans OBS, cochez « Contrôler l'audio via OBS » pour éviter l'écho."
         : api.platform === "win32"
-          ? "Son : celui de la vidéo YouTube, ou celui de l'ordinateur pour une fenêtre ou un écran."
-          : "Son : celui des vidéos YouTube (onglet YouTube). Sur ce système, le son d'une autre fenêtre ne peut pas être capturé.";
+          ? "Son : celui du fichier diffusé, ou celui de l'ordinateur pour une fenêtre ou un écran."
+          : "Son : celui des fichiers diffusés (onglet Fichiers). Sur ce système, le son d'une autre fenêtre ne peut pas être capturé.";
 }
 
 $("obs-quality").addEventListener("change", async () =>
@@ -907,6 +1024,7 @@ async function init() {
 
   await refreshDisplays();
   renderObs(await api.obsInfo());
+  state.files = await api.listFiles();
   state.status = await api.getStatus();
   await refreshSources();
   renderStatus();
@@ -914,11 +1032,8 @@ async function init() {
   // Les miniatures et la liste des fenêtres ouvertes se mettent à jour
   // toutes seules tant que l'application est visible.
   setInterval(() => {
-    if (!document.hidden && !isYoutubeTab()) refreshSources();
+    if (!document.hidden && !isFilesTab()) refreshSources();
   }, SOURCE_REFRESH_MS);
-  setInterval(() => {
-    if (!document.hidden) refreshRemote();
-  }, REMOTE_REFRESH_MS);
 }
 
 init();

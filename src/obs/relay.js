@@ -16,8 +16,8 @@ const TIMESLICE_MS = 100;
 const AUDIO_BITRATE = 192_000;
 // Débit vidéo : local à l'ordinateur, on peut être généreux.
 const VIDEO_BITRATE = { 1080: 20_000_000, 720: 10_000_000 };
-// Une image clé (et donc un nouveau bloc) toutes les 0,5 s : un lecteur ne peut
-// lire un bloc qu'une fois complet, c'est ce qui fixe le retard du flux.
+// Une image clé (et donc un nouveau bloc) toutes les 0,5 s : un lecteur ne
+// peut lire un bloc qu'une fois complet, c'est ce qui fixe le retard du flux.
 const KEYFRAME_INTERVAL_MS = 500;
 // H.264 : encodé par la carte graphique quand elle le permet (Windows, Mac).
 const FORMATS = {
@@ -152,10 +152,20 @@ videoTrack.contentHint = "motion";
 const videoWriter = videoTrack.writable.getWriter();
 let writing = false;
 
+// Horodatage sur une grille régulière de 60 i/s (et non l'heure exacte de
+// production, irrégulière dans une fenêtre cachée) : le mouvement reste fluide.
+let gridStart = null;
+let lastSlot = -1;
+
 function pushVideoFrame(now) {
   if (writing) return; // l'image précédente n'est pas encore prise : on saute
+  if (gridStart === null) gridStart = now;
+  const slot = Math.max(lastSlot + 1, Math.round((now - gridStart) / FRAME_MS));
+  lastSlot = slot;
   writing = true;
-  const frame = new VideoFrame(canvas, { timestamp: Math.round(now * 1000) });
+  const frame = new VideoFrame(canvas, {
+    timestamp: Math.round((gridStart + slot * FRAME_MS) * 1000),
+  });
   videoWriter
     .write(frame)
     .catch(() => frame.close())
@@ -166,20 +176,29 @@ function pushVideoFrame(now) {
 
 let running = false;
 
+// Image immobile : renvoyée quand même de temps en temps pour que le flux
+// continue (sans dupliquer inutilement chaque image, ce qui doublerait le
+// travail d'encodage et de décodage pour une source à 30 i/s).
+const REPEAT_MS = 100;
+
 async function loop() {
   if (running) return;
   running = true;
   let next = performance.now();
+  let lastPushed = -Infinity;
   while (totalClients() > 0) {
     const now = performance.now();
-    // L'image n'est recomposée que si une nouvelle est arrivée ou si rien n'est
-    // affiché ; sinon la précédente est simplement renvoyée (écran immobile).
-    if (latestIsNew || !latest) {
+    // Une nouvelle image est envoyée dès qu'elle arrive (jusqu'à 60 i/s).
+    const fresh = latestIsNew;
+    if (fresh || !latest) {
       draw();
       latestIsNew = false;
     }
-    if (clients.webm > 0) pushVideoFrame(now);
-    if (clients.mjpeg > 0) pushJpeg(now);
+    if (fresh || now - lastPushed >= REPEAT_MS) {
+      if (clients.webm > 0) pushVideoFrame(now);
+      if (clients.mjpeg > 0) pushJpeg(now);
+      lastPushed = now;
+    }
     next += FRAME_MS;
     // En retard (ordinateur chargé) : on repart de maintenant sans rattraper.
     if (next < performance.now()) next = performance.now() + FRAME_MS;

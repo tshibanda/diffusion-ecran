@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 function subscribe(channel, callback) {
   const handler = (_event, payload) => callback(payload);
@@ -19,17 +19,19 @@ contextBridge.exposeInMainWorld("diffusion", {
   stop: () => ipcRenderer.invoke("projection:stop"),
   setFit: (fit) => ipcRenderer.invoke("projection:fit", fit),
   setCrop: (sourceId, crop) => ipcRenderer.invoke("projection:crop", { sourceId, crop }),
-  youtubeInfo: (url) => ipcRenderer.invoke("youtube:info", url),
-  youtubeState: () => ipcRenderer.invoke("youtube:state"),
-  youtubeCommand: (action, value) => ipcRenderer.invoke("youtube:command", { action, value }),
   listDesktops: () => ipcRenderer.invoke("bureaux:list"),
   holdForeground: (on) => ipcRenderer.invoke("foreground:hold", on),
-  openBrowse: (url) => ipcRenderer.invoke("browse:open", url),
 
-  // Barre de « Parcourir YouTube »
-  browseNav: (action) => ipcRenderer.invoke("browse:nav", action),
-  browseDiffuse: () => ipcRenderer.invoke("browse:diffuse"),
-  onBrowseState: (cb) => subscribe("browse:state", cb),
+  // Fichiers
+  listFiles: () => ipcRenderer.invoke("files:list"),
+  saveFiles: (paths) => ipcRenderer.invoke("files:save", paths),
+  pickFiles: () => ipcRenderer.invoke("files:pick"),
+  describeFiles: (paths) => ipcRenderer.invoke("files:describe", paths),
+  prepareFile: (path) => ipcRenderer.invoke("files:prepare", path),
+  // Chemin d'un fichier glissé-déposé dans la fenêtre.
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  mediaCommand: (action, value) => ipcRenderer.invoke("media:command", { action, value }),
+  onMediaState: (cb) => subscribe("media-state", cb),
   screenPermission: () => ipcRenderer.invoke("permission:screen"),
   openScreenSettings: () => ipcRenderer.invoke("permission:open-settings"),
   onStatus: (cb) => subscribe("status", cb),
@@ -48,6 +50,12 @@ contextBridge.exposeInMainWorld("diffusion", {
   setObsAudio: (value) => ipcRenderer.invoke("settings:obs-audio", value),
   onRelaySource: (cb) => subscribe("relay:source", cb),
   onRelayClients: (cb) => subscribe("relay:clients", cb),
+
+  // Fenêtre de projection (fichiers)
+  readSlidesPdf: () => ipcRenderer.invoke("files:read-slides-pdf"),
+  sendMediaState: (state) => ipcRenderer.send("media:state", state),
+  reportMediaError: (message) => ipcRenderer.send("media:error", message),
+  onMediaCommand: (cb) => subscribe("media:command", cb),
 
   // Fenêtre de projection
   getCurrent: () => ipcRenderer.invoke("projector:current"),

@@ -1,21 +1,18 @@
 const {
   app,
-  BaseWindow,
   BrowserWindow,
-  WebContentsView,
+  dialog,
   ipcMain,
   desktopCapturer,
   screen,
   session,
-  net,
   systemPreferences,
   shell,
   clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { ElectronBlocker } = require("@ghostery/adblocker-electron");
-const { parseYoutubeUrl, PAGE_SCRIPT } = require("./youtube");
+const fichiers = require("./fichiers");
 const bureaux = require("./bureaux");
 const foreground = require("./foreground");
 const { createObsServer } = require("./obs/server");
@@ -25,23 +22,19 @@ const PROJECTOR_TITLE = "Diffusion Écran — Projection";
 const PRELOAD_PATH = path.join(__dirname, "preload.js");
 const ICON_PATH = path.join(__dirname, "assets", "icon.png");
 const FIT_MODES = ["contain", "cover", "fill"];
-const YOUTUBE_PARTITION = "persist:youtube";
-const YOUTUBE_TICK_MS = 400;
-const BLOCKER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-// Dossier de données (réglages, cache du bloqueur) : nom sans accent, sinon
+// Dossier de données (réglages, conversions) : nom sans accent, sinon
 // Electron peut se rabattre sur un dossier partagé selon le système.
 app.setPath("userData", path.join(app.getPath("appData"), "Diffusion Ecran"));
 
 let controlWindow = null;
 let projectorWindow = null;
-let youtubeTicker = null;
 // Ce qui est actuellement envoyé sur l'écran de projection, ou null.
 // kind "capture" : une fenêtre ou un écran capturé (sourceId, fit, crop).
-// kind "youtube" : une vidéo YouTube ouverte directement (watchUrl).
+// kind "file" : un fichier (vidéo, son, image, PDF, présentation) lu par
+// l'application elle-même (file, slide).
+// kind "move" : une fenêtre placée sur l'écran de projection (Windows).
 let live = null;
-// "loading" | "on" | "off"
-let adblockStatus = "loading";
 
 // --- Réglages (écran cible, cadrage) -------------------------------------
 // Stockés dans le dossier de données de l'application, jamais dans le
@@ -109,7 +102,7 @@ function findDisplay(id) {
 // --- Statut envoyé à la fenêtre de contrôle -------------------------------
 
 function status() {
-  const base = { live: false, adblock: adblockStatus };
+  const base = { live: false };
   if (!live) return base;
   const display = listDisplays().find((d) => d.id === live.displayId);
   return {
@@ -118,14 +111,14 @@ function status() {
     kind: live.kind,
     sourceId: live.sourceId || null,
     sourceName: live.sourceName,
-    watchUrl: live.watchUrl || null,
+    file: live.file ? { path: live.file.path, type: live.file.type } : null,
     displayId: live.displayId,
     displayLabel: display ? display.label : "",
     fit: live.fit,
     otherDesktop: !!live.otherDesktop,
-    // Pour l'aperçu YouTube : la fenêtre de projection elle-même est capturée.
+    // Pour l'aperçu d'un fichier : la fenêtre de projection elle-même est capturée.
     previewSourceId:
-      live.kind === "youtube" && projectorWindow && !projectorWindow.isDestroyed()
+      live.kind === "file" && projectorWindow && !projectorWindow.isDestroyed()
         ? projectorWindow.getMediaSourceId()
         : null,
   };
@@ -139,7 +132,6 @@ function sendToControl(channel, payload) {
 
 function broadcastStatus() {
   sendToControl("status", status());
-  pushBrowseState();
   syncRelaySource();
 }
 
@@ -182,12 +174,12 @@ function obsInfo() {
   };
 }
 
-// Son du flux : celui de la vidéo YouTube (lue par l'application), sinon le
-// son de l'ordinateur (Windows seulement : les autres systèmes ne le permettent pas).
+// Son du flux : celui du fichier (lu par l'application), sinon le son de
+// l'ordinateur (Windows seulement : les autres systèmes ne le permettent pas).
 function relayAudioSource() {
   if (!live || !obsAudioEnabled()) return null;
-  if (live.kind === "youtube") {
-    return projectorWindow && !projectorWindow.isDestroyed() ? "youtube" : null;
+  if (live.kind === "file") {
+    return projectorWindow && !projectorWindow.isDestroyed() ? "file" : null;
   }
   return process.platform === "win32" ? "system" : null;
 }
@@ -196,7 +188,7 @@ let pendingAudio = null;
 function syncRelayAudio() {
   if (!relayWindow || relayWindow.isDestroyed()) return;
   const mode = obs.clientCount() > 0 ? relayAudioSource() : null;
-  const frame = mode === "youtube" ? projectorWindow.webContents.mainFrame : null;
+  const frame = mode === "file" ? projectorWindow.webContents.mainFrame : null;
   const key = `${mode}:${frame ? frame.processId + "/" + frame.routingId : ""}`;
   if (key === relayAudioKey) return;
   relayAudioKey = key;
@@ -221,7 +213,7 @@ function handleDisplayMediaRequests() {
     if (!fromRelay || !pendingAudio) return callback({});
     try {
       const [screenSource] = await desktopCapturer.getSources({ types: ["screen"] });
-      const audio = pendingAudio.mode === "youtube" ? pendingAudio.frame : "loopback";
+      const audio = pendingAudio.mode === "file" ? pendingAudio.frame : "loopback";
       callback({ video: screenSource, audio });
     } catch {
       callback({});
@@ -245,7 +237,7 @@ ipcMain.handle("settings:obs-audio", (_event, value) => {
 // Ce que le flux doit montrer : la même chose que l'écran de projection.
 function relaySource() {
   if (!live) return null;
-  if (live.kind === "youtube") {
+  if (live.kind === "file") {
     return projectorWindow && !projectorWindow.isDestroyed()
       ? { sourceId: projectorWindow.getMediaSourceId(), fit: "contain", crop: null }
       : null;
@@ -301,111 +293,19 @@ ipcMain.handle("obs:info", () => obsInfo());
 
 ipcMain.handle("clipboard:write", (_event, text) => clipboard.writeText(String(text)));
 
-// --- Bloqueur de publicités (fenêtre YouTube) ----------------------------
-// Moteur Ghostery chargé avec les listes uBlock Origin + EasyList (pubs,
-// pisteurs, bandeaux cookies), y compris les scripts anti-pub YouTube.
-// Les listes sont gardées en cache et rafraîchies une fois par jour.
-
-function blockerCachePath() {
-  return path.join(app.getPath("userData"), "bloqueur-pub.bin");
-}
-
-async function loadBlocker() {
-  const cache = blockerCachePath();
-  let cached = null;
-  try {
-    const stat = fs.statSync(cache);
-    cached = { fresh: Date.now() - stat.mtimeMs < BLOCKER_MAX_AGE_MS };
-  } catch {
-    // Pas encore de cache.
-  }
-  const fromCache = async () => ElectronBlocker.deserialize(await fs.promises.readFile(cache));
-
-  if (cached && cached.fresh) {
-    try {
-      return await fromCache();
-    } catch {
-      // Cache illisible (version différente…) : on retélécharge.
-    }
-  }
-  try {
-    const blocker = await ElectronBlocker.fromPrebuiltFull((url, init) => net.fetch(url, init));
-    fs.promises.writeFile(cache, blocker.serialize()).catch(() => {});
-    return blocker;
-  } catch (error) {
-    // Hors ligne : on garde les listes de la veille plutôt que rien.
-    if (cached) return fromCache();
-    throw error;
-  }
-}
-
-function cleanUserAgent(ua) {
-  // YouTube sert une page dégradée aux navigateurs qu'il ne reconnaît pas :
-  // on ne garde que les mentions d'un Chrome ordinaire (sans « Electron/… »
-  // ni le nom de l'application).
-  return ua.replace(/ (?!(?:Mozilla|AppleWebKit|Chrome|Safari)\/)[^\s()]+\/[^\s()]+/g, "");
-}
-
-let youtubeSessionPromise = null;
-function youtubeSession() {
-  if (!youtubeSessionPromise) youtubeSessionPromise = setupYoutubeSession();
-  return youtubeSessionPromise;
-}
-
-async function setupYoutubeSession() {
-  const ses = session.fromPartition(YOUTUBE_PARTITION);
-  ses.setUserAgent(cleanUserAgent(ses.getUserAgent()));
-  ses.setPermissionRequestHandler((_wc, permission, callback) =>
-    callback(permission === "fullscreen")
-  );
-  // Refus des cookies non essentiels : évite la page de consentement (UE).
-  const expirationDate = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
-  for (const domain of [".youtube.com", ".google.com"]) {
-    await ses.cookies
-      .set({
-        url: `https://www${domain}`,
-        domain,
-        name: "SOCS",
-        value: "CAI",
-        path: "/",
-        secure: true,
-        sameSite: "lax",
-        expirationDate,
-      })
-      .catch(() => {});
-  }
-  try {
-    const blocker = await loadBlocker();
-    blocker.enableBlockingInSession(ses);
-    adblockStatus = "on";
-  } catch {
-    adblockStatus = "off";
-  }
-  broadcastStatus();
-  return ses;
-}
-
 // --- Fenêtre de projection -----------------------------------------------
-
-function stopYoutubeTicker() {
-  clearInterval(youtubeTicker);
-  youtubeTicker = null;
-}
 
 function closeProjector() {
   if (movedHwnd) releaseMovedWindow();
   const win = projectorWindow;
   projectorWindow = null;
   live = null;
-  stopYoutubeTicker();
   if (win && !win.isDestroyed()) win.destroy();
 }
 
-function enterFullscreen(win, display, kind) {
+function enterFullscreen(win, display) {
   win.setBounds(display.bounds);
-  // Sur Mac, la vidéo YouTube passe elle-même en plein écran : la fenêtre
-  // doit donc être en plein écran « natif » pour que les deux s'accordent.
-  if (process.platform === "darwin" && kind === "capture") {
+  if (process.platform === "darwin") {
     win.setSimpleFullScreen(true);
   } else {
     win.setFullScreen(true);
@@ -413,22 +313,14 @@ function enterFullscreen(win, display, kind) {
 }
 
 function openProjector(display, kind) {
-  const webPreferences =
-    kind === "youtube"
-      ? {
-          partition: YOUTUBE_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-          autoplayPolicy: "no-user-gesture-required",
-          backgroundThrottling: false,
-        }
-      : {
-          preload: PRELOAD_PATH,
-          contextIsolation: true,
-          nodeIntegration: false,
-          backgroundThrottling: false,
-        };
+  const webPreferences = {
+    preload: PRELOAD_PATH,
+    contextIsolation: true,
+    nodeIntegration: false,
+    backgroundThrottling: false,
+    // Une vidéo démarre avec le son sans clic sur l'écran de projection.
+    autoplayPolicy: "no-user-gesture-required",
+  };
   const win = new BrowserWindow({
     ...display.bounds,
     title: PROJECTOR_TITLE,
@@ -442,15 +334,13 @@ function openProjector(display, kind) {
     webPreferences,
   });
   win.setMenu(null);
-  // Garde son titre (la page YouTube voudrait mettre le sien).
-  win.on("page-title-updated", (event) => event.preventDefault());
 
   win.once("ready-to-show", () => {
     if (win.isDestroyed()) return;
     win.showInactive();
     // Repositionné après l'affichage : Windows ajuste parfois les bornes
     // quand les deux écrans n'ont pas la même mise à l'échelle.
-    enterFullscreen(win, display, kind);
+    enterFullscreen(win, display);
     // Toujours au premier plan, sauf si on projette sur l'écran de la régie
     // (sinon la fenêtre de contrôle deviendrait inaccessible).
     if (controlDisplayId() !== display.id) win.setAlwaysOnTop(true, "screen-saver");
@@ -469,41 +359,21 @@ function openProjector(display, kind) {
     }
   });
 
-  if (kind === "youtube") {
-    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    // Si la vidéo quitte son plein écran, la fenêtre doit rester plein écran.
-    win.on("leave-full-screen", () => {
-      setTimeout(() => {
-        if (projectorWindow === win && !win.isDestroyed()) enterFullscreen(win, display, kind);
-      }, 200);
-    });
-  } else {
-    win.loadFile(path.join(__dirname, "projector", "projector.html"));
-  }
+  win.loadFile(
+    kind === "file"
+      ? path.join(__dirname, "media", "player.html")
+      : path.join(__dirname, "projector", "projector.html")
+  );
 
   win.on("closed", () => {
     if (projectorWindow === win) {
       projectorWindow = null;
       live = null;
-      stopYoutubeTicker();
       broadcastStatus();
     }
   });
 
   return win;
-}
-
-async function loadYoutube(win, watchUrl) {
-  await youtubeSession();
-  if (win.isDestroyed()) return;
-  stopYoutubeTicker();
-  win.loadURL(watchUrl).catch(() => {});
-  const code = `${PAGE_SCRIPT}\nwindow.__diffusion && window.__diffusion.tick();`;
-  youtubeTicker = setInterval(() => {
-    if (win.isDestroyed()) return stopYoutubeTicker();
-    // userGesture = true : c'est ce qui autorise le plein écran du lecteur.
-    win.webContents.executeJavaScript(code, true).catch(() => {});
-  }, YOUTUBE_TICK_MS);
 }
 
 // --- Diffusion d'une fenêtre par placement (Windows) ------------------------
@@ -524,7 +394,7 @@ function windowHwnd(sourceId) {
 function shouldPlaceWindow(request) {
   return (
     bureaux.supported &&
-    request.kind !== "youtube" &&
+    request.kind !== "file" &&
     !request.crop &&
     !!windowHwnd(request.sourceId)
   );
@@ -599,12 +469,25 @@ async function startWindowPlacement(request) {
   return status();
 }
 
+// Fichier : prêt à diffuser (présentation convertie en diapositives…).
+async function startFile(request) {
+  const item = fichiers.describe(String(request.path || ""));
+  if (!item) return { ...status(), error: "Ce fichier est introuvable ou n'est pas pris en charge." };
+  let slides = null;
+  try {
+    slides = await fichiers.prepare(item, app.getPath("userData"));
+  } catch (error) {
+    return { ...status(), error: error.message };
+  }
+  return startProjection({ ...request, kind: "file", file: { ...item, slides } });
+}
+
 function startProjection(request) {
   if (movedHwnd) {
     releaseMovedWindow();
     live = null;
   }
-  const kind = request.kind === "youtube" ? "youtube" : "capture";
+  const kind = request.kind === "file" ? "file" : "capture";
   const display = findDisplay(request.displayId) || findDisplay(defaultDisplayId());
   const reuse =
     projectorWindow &&
@@ -613,14 +496,13 @@ function startProjection(request) {
     live.displayId === display.id &&
     live.kind === kind;
 
-  if (kind === "youtube") {
-    const info = parseYoutubeUrl(request.url);
-    if (!info) return { ...status(), error: "Lien YouTube non reconnu." };
+  if (kind === "file") {
     live = {
       kind,
-      watchUrl: info.watchUrl,
-      sourceName: request.title || "Vidéo YouTube",
+      file: request.file,
+      sourceName: request.file.name,
       displayId: display.id,
+      fit: FIT_MODES.includes(request.fit) ? request.fit : "contain",
     };
   } else {
     live = {
@@ -639,15 +521,12 @@ function startProjection(request) {
     if (projectorWindow && !projectorWindow.isDestroyed()) {
       const old = projectorWindow;
       projectorWindow = null;
-      stopYoutubeTicker();
       old.destroy();
     }
     projectorWindow = openProjector(display, kind);
   }
-  if (kind === "youtube") {
-    loadYoutube(projectorWindow, live.watchUrl);
-  } else if (reuse) {
-    // Changement de fenêtre à chaud, sans fermer l'écran de projection.
+  if (reuse) {
+    // Changement à chaud, sans fermer l'écran de projection.
     projectorWindow.webContents.send("projector:source", live);
   }
   broadcastStatus();
@@ -655,7 +534,7 @@ function startProjection(request) {
 }
 
 function updateCapture(patch) {
-  if (live && live.kind === "capture" && projectorWindow && !projectorWindow.isDestroyed()) {
+  if (live && live.kind !== "move" && projectorWindow && !projectorWindow.isDestroyed()) {
     Object.assign(live, patch);
     projectorWindow.webContents.send("projector:source", live);
   }
@@ -710,160 +589,6 @@ ipcMain.handle("settings:get", () => {
   };
 });
 
-// --- Parcourir YouTube --------------------------------------------------------
-// Navigateur YouTube intégré (même session que l'écran de projection : bloqueur
-// de publicités, cookies). On y choisit la vidéo, puis « Diffuser cette vidéo »
-// l'ouvre en plein écran sur l'écran de projection, au même moment.
-//
-// Pourquoi pas simplement capturer la fenêtre de Chrome : Windows ne dessine
-// pas les fenêtres d'un bureau virtuel non affiché, et Chrome arrête de dessiner
-// une fenêtre cachée ; la capture n'en reçoit qu'une image figée et noire.
-// Ici, c'est l'application qui lit la vidéo : elle s'affiche toujours.
-
-const BROWSE_TOOLBAR_HEIGHT = 50;
-const BROWSE_ADS_TICK_MS = 500;
-const YOUTUBE_HOME = "https://www.youtube.com/";
-let browse = null; // { win, toolbar, content }
-
-function browseState() {
-  if (!browse) return null;
-  const wc = browse.content.webContents;
-  const url = wc.getURL();
-  return {
-    url,
-    title: wc.getTitle(),
-    canGoBack: wc.navigationHistory.canGoBack(),
-    canGoForward: wc.navigationHistory.canGoForward(),
-    isVideo: !!parseYoutubeUrl(url),
-    live: !!live,
-    liveName: live ? live.sourceName : "",
-  };
-}
-
-function pushBrowseState() {
-  if (browse && !browse.toolbar.webContents.isDestroyed()) {
-    browse.toolbar.webContents.send("browse:state", browseState());
-  }
-}
-
-async function openBrowseWindow(startUrl) {
-  if (browse) {
-    browse.win.show();
-    browse.win.focus();
-    if (startUrl) browse.content.webContents.loadURL(startUrl).catch(() => {});
-    return;
-  }
-  await youtubeSession();
-  const area = screen.getDisplayMatching(
-    controlWindow && !controlWindow.isDestroyed()
-      ? controlWindow.getBounds()
-      : screen.getPrimaryDisplay().bounds
-  ).workArea;
-  const width = Math.min(1280, area.width - 60);
-  const height = Math.min(860, area.height - 60);
-  const win = new BaseWindow({
-    x: area.x + Math.round((area.width - width) / 2),
-    y: area.y + Math.round((area.height - height) / 2),
-    width,
-    height,
-    minWidth: 700,
-    minHeight: 450,
-    title: "Diffusion Écran — Parcourir YouTube",
-    icon: ICON_PATH,
-    backgroundColor: "#0f1115",
-    autoHideMenuBar: true,
-  });
-  const toolbar = new WebContentsView({
-    webPreferences: { preload: PRELOAD_PATH, contextIsolation: true, nodeIntegration: false },
-  });
-  const content = new WebContentsView({
-    webPreferences: {
-      partition: YOUTUBE_PARTITION,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  win.contentView.addChildView(content);
-  win.contentView.addChildView(toolbar);
-  const layout = () => {
-    const { width: w, height: h } = win.getContentBounds();
-    toolbar.setBounds({ x: 0, y: 0, width: w, height: BROWSE_TOOLBAR_HEIGHT });
-    content.setBounds({ x: 0, y: BROWSE_TOOLBAR_HEIGHT, width: w, height: Math.max(0, h - BROWSE_TOOLBAR_HEIGHT) });
-  };
-  layout();
-  win.on("resize", layout);
-
-  browse = { win, toolbar, content };
-  const wc = content.webContents;
-  // Les liens qui voudraient ouvrir une nouvelle fenêtre s'ouvrent ici.
-  wc.setWindowOpenHandler(({ url }) => {
-    wc.loadURL(url).catch(() => {});
-    return { action: "deny" };
-  });
-  for (const event of ["did-navigate", "did-navigate-in-page", "page-title-updated", "did-finish-load"]) {
-    wc.on(event, pushBrowseState);
-  }
-  toolbar.webContents.on("did-finish-load", pushBrowseState);
-  toolbar.webContents.loadFile(path.join(__dirname, "browse", "toolbar.html"));
-  wc.loadURL(startUrl || YOUTUBE_HOME).catch(() => {});
-  // Publicités qui passeraient malgré le bloqueur : coupées et passées.
-  const adsCode = `${PAGE_SCRIPT}\nwindow.__diffusion && window.__diffusion.adsOnly();`;
-  const adsTicker = setInterval(() => {
-    if (!wc.isDestroyed()) wc.executeJavaScript(adsCode).catch(() => {});
-  }, BROWSE_ADS_TICK_MS);
-
-  win.on("closed", () => {
-    clearInterval(adsTicker);
-    browse = null;
-    if (!wc.isDestroyed()) wc.close();
-    if (!toolbar.webContents.isDestroyed()) toolbar.webContents.close();
-  });
-}
-
-// Envoie la vidéo affichée dans « Parcourir YouTube » vers la projection, au
-// moment où elle en est, et met en pause celle de la fenêtre de navigation.
-async function diffuseBrowsedVideo() {
-  if (!browse) return status();
-  const wc = browse.content.webContents;
-  const info = parseYoutubeUrl(wc.getURL());
-  if (!info) return status();
-  let time = 0;
-  try {
-    time = await wc.executeJavaScript(`(() => {
-      const v = document.querySelector("#movie_player video");
-      if (!v) return 0;
-      v.pause();
-      return v.currentTime || 0;
-    })()`);
-  } catch {
-    // Pas de lecteur : on part du début.
-  }
-  const list = new URL(info.watchUrl).searchParams.get("list");
-  let url = `https://www.youtube.com/watch?v=${info.videoId}`;
-  if (list) url += `&list=${encodeURIComponent(list)}`;
-  if (time > 2) url += `&t=${Math.floor(time)}s`;
-  return startProjection({
-    kind: "youtube",
-    url,
-    title: wc.getTitle().replace(/ - YouTube$/, "").replace(/^\(\d+\) /, ""),
-    displayId: defaultDisplayId(),
-  });
-}
-
-ipcMain.handle("browse:open", (_event, url) => openBrowseWindow(url || null));
-
-ipcMain.handle("browse:nav", (_event, action) => {
-  if (!browse) return;
-  const wc = browse.content.webContents;
-  if (action === "back" && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
-  else if (action === "forward" && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
-  else if (action === "reload") wc.reload();
-  else if (action === "home") wc.loadURL(YOUTUBE_HOME).catch(() => {});
-});
-
-ipcMain.handle("browse:diffuse", () => diffuseBrowsedVideo());
-
 // Voir foreground.js : empêche le changement de bureau au début d'une capture.
 ipcMain.handle("foreground:hold", (_event, on) => (on ? foreground.hold() : foreground.unhold()));
 
@@ -879,9 +604,71 @@ ipcMain.handle("bureaux:list", async () => {
 
 ipcMain.handle("status:get", () => status());
 
-ipcMain.handle("projection:start", (_event, request) =>
-  shouldPlaceWindow(request) ? startWindowPlacement(request) : startProjection(request)
+ipcMain.handle("projection:start", (_event, request) => {
+  if (request.kind === "file") return startFile(request);
+  return shouldPlaceWindow(request) ? startWindowPlacement(request) : startProjection(request);
+});
+
+// --- Fichiers --------------------------------------------------------------------
+
+function savedFiles() {
+  const list = loadSettings().files;
+  return Array.isArray(list) ? list : [];
+}
+
+ipcMain.handle("files:list", () => savedFiles().map(fichiers.describe).filter(Boolean));
+
+ipcMain.handle("files:save", (_event, paths) => {
+  saveSettings({ files: (Array.isArray(paths) ? paths : []).map(String) });
+});
+
+ipcMain.handle("files:pick", async () => {
+  const result = await dialog.showOpenDialog(controlWindow, {
+    title: "Ajouter des fichiers à diffuser",
+    properties: ["openFile", "multiSelections"],
+    filters: fichiers.DIALOG_FILTERS,
+  });
+  return result.canceled ? [] : result.filePaths.map(fichiers.describe).filter(Boolean);
+});
+
+ipcMain.handle("files:describe", (_event, paths) =>
+  (Array.isArray(paths) ? paths : []).map((p) => fichiers.describe(String(p))).filter(Boolean)
 );
+
+// Conversion à l'avance (dès qu'une présentation est choisie dans la liste).
+ipcMain.handle("files:prepare", async (_event, file) => {
+  const item = fichiers.describe(String(file || ""));
+  if (!item) return { ok: false, error: "Fichier introuvable." };
+  try {
+    const slides = await fichiers.prepare(item, app.getPath("userData"));
+    return { ok: true, slides: slides ? { kind: slides.kind } : null };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+// Le PDF des diapositives, lu uniquement pour le fichier en cours de diffusion.
+ipcMain.handle("files:read-slides-pdf", (event) => {
+  if (!projectorWindow || event.sender !== projectorWindow.webContents) return null;
+  const pdf = live && live.file && live.file.slides && live.file.slides.pdf;
+  return pdf ? fs.promises.readFile(pdf) : null;
+});
+
+// Télécommande : régie → écran de projection, et état en retour.
+ipcMain.handle("media:command", (_event, command) => {
+  if (live && live.kind === "file" && projectorWindow && !projectorWindow.isDestroyed()) {
+    projectorWindow.webContents.send("media:command", command);
+  }
+});
+
+ipcMain.on("media:state", (event, state) => {
+  if (projectorWindow && event.sender === projectorWindow.webContents) sendToControl("media-state", state);
+});
+
+ipcMain.on("media:error", (event, message) => {
+  if (!projectorWindow || event.sender !== projectorWindow.webContents) return;
+  sendToControl("notice", `Impossible de lire ce fichier : ${message}`);
+});
 
 ipcMain.handle("projection:stop", () => {
   closeProjector();
@@ -898,54 +685,6 @@ ipcMain.handle("projection:fit", (_event, fit) => {
 ipcMain.handle("projection:crop", (_event, { sourceId, crop }) => {
   if (!live || live.sourceId !== sourceId) return status();
   return updateCapture({ crop: crop || null });
-});
-
-ipcMain.handle("youtube:info", async (_event, url) => {
-  const info = parseYoutubeUrl(url);
-  if (!info) return { ok: false };
-  let title = null;
-  let author = null;
-  try {
-    const res = await net.fetch(
-      `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(info.watchUrl)}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      title = data.title || null;
-      author = data.author_name || null;
-    }
-  } catch {
-    // Titre facultatif : hors ligne, on affiche juste la miniature.
-  }
-  return { ok: true, ...info, title, author };
-});
-
-ipcMain.handle("youtube:state", async () => {
-  if (!live || live.kind !== "youtube" || !projectorWindow || projectorWindow.isDestroyed()) {
-    return null;
-  }
-  let state;
-  try {
-    state = await projectorWindow.webContents.executeJavaScript(
-      "window.__diffusion ? window.__diffusion.state() : { ready: false }"
-    );
-  } catch {
-    return { ready: false };
-  }
-  // Le vrai titre de la vidéo, une fois connu (et pas celui d'une pub).
-  if (live && state && state.ready && !state.ad && state.title && state.title !== live.sourceName) {
-    live.sourceName = state.title;
-    broadcastStatus();
-  }
-  return state;
-});
-
-ipcMain.handle("youtube:command", async (_event, { action, value }) => {
-  if (!live || live.kind !== "youtube" || !projectorWindow || projectorWindow.isDestroyed()) return;
-  const code = `window.__diffusion && window.__diffusion.command(${JSON.stringify(
-    String(action)
-  )}, ${JSON.stringify(Number(value) || 0)})`;
-  await projectorWindow.webContents.executeJavaScript(code, true).catch(() => {});
 });
 
 ipcMain.handle("projector:current", () => live);
@@ -1022,8 +761,6 @@ if (!app.requestSingleInstanceLock()) {
     createControlWindow();
     createRelayWindow();
     obs.listen().then(() => sendToControl("obs", obsInfo()));
-    // Préparé dès le démarrage pour que la première vidéo démarre sans attendre.
-    youtubeSession();
 
     const onDisplaysChanged = () => {
       if (live && !findDisplay(live.displayId)) {

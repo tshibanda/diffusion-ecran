@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; media-src 'self' file: blob:"
+    />
+    <title>Diffusion Écran — Projection</title>
+    <link rel="stylesheet" href="player.css" />
+  </head>
+  <body>
+    <video id="video" playsinline hidden></video>
+    <img id="image" alt="" hidden />
+    <canvas id="page" hidden></canvas>
+    <script type="module" src="player.js"></script>
+  </body>
+</html>

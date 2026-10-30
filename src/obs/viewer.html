@@ -32,7 +32,22 @@
         { url: "/live.webm", type: 'video/webm; codecs="vp8,opus"' },
       ];
       const tried = new URLSearchParams(location.search).get("format");
-      const MAX_DELAY = 0.5; // secondes de retard tolérées avant de rattraper
+      // Lancement de l'application qui a servi cette page (voir server.js).
+      const BOOT_ID = "__BOOT_ID__";
+      // Lecture fluide : on garde un petit tampon régulier et on le maintient en
+      // accélérant ou ralentissant imperceptiblement la lecture, sans sauter
+      // (chaque saut se voit). On ne saute que très en retard.
+      // La vidéo arrive par blocs (un par image clé) : le tampon doit toujours
+      // dépasser la taille d'un bloc, sinon la lecture rattrape la fin des
+      // données et le lecteur jette les images du bloc suivant, déjà en retard
+      // (saccades). Ce retard visé s'adapte à la taille réelle des blocs.
+      // Retard imposé possible dans l'adresse : http://127.0.0.1:8765/?retard=2
+      const forcedDelay = Number(new URLSearchParams(location.search).get("retard")) || 0;
+      let targetDelay = forcedDelay || 1.2;
+      const recentSteps = [];
+      const FAST = 1.05;
+      const SLOW = 0.97;
+      const JUMP_DELAY = 3; // au-delà, on rejoint le direct d'un coup
       const KEEP = 10; // secondes de vidéo gardées en mémoire
       const video = document.getElementById("video");
 
@@ -51,14 +66,17 @@
         const media = new MediaSource();
         video.src = URL.createObjectURL(media);
         media.addEventListener("sourceopen", async () => {
+          // Horodatage d'origine des images (mode « segments » par défaut) : le
+          // mode « sequence » recolle chaque bloc après le précédent et, avec le
+          // son et l'image en blocs séparés, tasse les images (saccades).
           const buffer = media.addSourceBuffer(format.type);
-          buffer.mode = "sequence";
           let played = false;
           video.addEventListener("playing", () => (played = true), { once: true });
           buffer.addEventListener("error", () => {
             if (!played && format.url === "/live.mp4") location.search = "?format=webm";
           });
           const queue = [];
+          let lastEnd = 0;
           const pump = () => {
             if (buffer.updating || !queue.length) return;
             // Libère la vidéo déjà jouée (au-delà de KEEP secondes).
@@ -72,8 +90,20 @@
           buffer.addEventListener("updateend", () => {
             if (buffer.buffered.length) {
               const end = buffer.buffered.end(buffer.buffered.length - 1);
-              if (end - video.currentTime > MAX_DELAY) video.currentTime = end - 0.1;
-              if (video.paused) video.play().catch(() => {});
+              const step = end - lastEnd;
+              lastEnd = end;
+              if (!forcedDelay && step > 0.02 && step < 5) {
+                recentSteps.push(step);
+                if (recentSteps.length > 8) recentSteps.shift();
+                targetDelay = Math.min(3, Math.max(0.6, Math.max(...recentSteps) * 1.3 + 0.25));
+              }
+              // Démarrage (ou très en retard) : on se place au bon retard.
+              if (!played || end - video.currentTime > JUMP_DELAY) {
+                if (end > targetDelay) video.currentTime = end - targetDelay;
+              }
+              if (video.paused && end - video.currentTime >= targetDelay / 2) {
+                video.play().catch(() => {});
+              }
             }
             pump();
           });
@@ -89,15 +119,32 @@
           } catch {
             // Application fermée ou redémarrée.
           }
-          // Reconnexion automatique.
-          setTimeout(() => location.reload(), 1000);
+          // Flux coupé : on se reconnecte dès que l'application répond.
+          streamEnded = true;
         });
       }
 
       // Images manquantes (ordinateur chargé) : on saute le trou au lieu de
       // rester figé.
+      // Régulation du retard, et trou dans la vidéo (images manquantes) : on le
+      // franchit seulement si la lecture est réellement bloquée.
+      let lastTime = -1;
+      let stuckSince = 0;
       setInterval(() => {
-        if (video.readyState >= 3 || !video.buffered.length) return;
+        if (!video.buffered.length) return;
+        const end = video.buffered.end(video.buffered.length - 1);
+        const delay = end - video.currentTime;
+        // Le retard oscille d'un bloc à l'autre : on ne corrige que la tendance.
+        video.playbackRate =
+          delay > targetDelay + 0.6 ? FAST : delay < targetDelay - 0.6 ? SLOW : 1;
+
+        const now = performance.now();
+        if (video.paused || video.currentTime !== lastTime) {
+          lastTime = video.currentTime;
+          stuckSince = now;
+          return;
+        }
+        if (now - stuckSince < 400) return;
         for (let i = 0; i < video.buffered.length; i++) {
           const startOf = video.buffered.start(i);
           if (startOf > video.currentTime) {
@@ -105,7 +152,23 @@
             break;
           }
         }
-      }, 200);
+        stuckSince = now;
+      }, 100);
+
+      // Rechargement automatique (jamais pendant que l'application est fermée,
+      // sinon OBS resterait bloqué sur une page d'erreur) :
+      //  - l'application a redémarré ou a été mise à jour → nouvelle page ;
+      //  - le flux s'est arrêté (changement de qualité…) → on se reconnecte.
+      let streamEnded = false;
+      setInterval(async () => {
+        try {
+          const response = await fetch("/version", { cache: "no-store" });
+          const { boot } = await response.json();
+          if (boot !== BOOT_ID || streamEnded) location.reload();
+        } catch {
+          // Application fermée : on réessaie plus tard.
+        }
+      }, 2000);
 
       start();
     </script>

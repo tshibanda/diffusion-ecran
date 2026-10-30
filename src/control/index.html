@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://i.ytimg.com; media-src 'self' blob: mediastream:"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: file:; media-src 'self' blob: mediastream: file:"
     />
     <title>Diffusion Écran</title>
     <link rel="stylesheet" href="styles.css" />
@@ -35,7 +35,7 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-kind="window" role="tab">Fenêtres</button>
             <button class="tab" data-kind="screen" role="tab">Écrans entiers</button>
-            <button class="tab" data-kind="youtube" role="tab">YouTube</button>
+            <button class="tab" data-kind="files" role="tab">Fichiers</button>
           </div>
           <input id="search" type="search" placeholder="Rechercher…" />
           <button id="refresh" class="btn small ghost" title="Actualiser la liste">↻</button>
@@ -48,41 +48,18 @@
         <div id="source-grid" class="grid"></div>
         <p id="source-empty" class="empty" hidden>Aucune fenêtre trouvée.</p>
 
-        <div id="youtube-panel" class="youtube-panel" hidden>
-          <div class="browse-call">
-            <div>
-              <p class="yt-title">Parcourir YouTube comme dans Chrome</p>
-              <p class="hint">
-                Recherchez et ouvrez la vidéo, puis « ▶ Diffuser cette vidéo » : elle passe en
-                plein écran sur l'écran de projection, au moment où vous en êtes, sans publicité.
-              </p>
-            </div>
-            <button class="btn primary-big open-browse">Parcourir YouTube</button>
+        <div id="files-panel" class="files-panel" hidden>
+          <div class="files-head">
+            <button id="files-add" class="btn primary-big">+ Ajouter des fichiers</button>
+            <p class="hint">
+              Vidéos, sons, images, PDF et présentations PowerPoint. Vous pouvez aussi glisser des
+              fichiers ici.
+            </p>
           </div>
-          <p class="or">ou collez directement un lien :</p>
-          <label class="field">
-            <span>Lien de la vidéo YouTube</span>
-            <input
-              id="yt-url"
-              type="text"
-              spellcheck="false"
-              placeholder="Collez ici le lien (ex. https://www.youtube.com/watch?v=…)"
-            />
-          </label>
-          <div id="yt-card" class="yt-card" hidden>
-            <img id="yt-thumb" alt="" />
-            <div>
-              <p id="yt-title" class="yt-title"></p>
-              <p id="yt-author" class="yt-author"></p>
-            </div>
-          </div>
-          <p id="yt-error" class="warning" hidden>Ce lien n'est pas une vidéo YouTube.</p>
-          <p class="hint">
-            La vidéo s'ouvre directement en plein écran sur l'écran de projection, sans
-            l'interface de YouTube. Le son sort de cet ordinateur.
+          <ul id="files-list" class="files-list"></ul>
+          <p id="files-empty" class="empty">
+            Aucun fichier pour l'instant : ajoutez-en avec le bouton ci-dessus ou glissez-les ici.
           </p>
-
-          <p id="adblock" class="adblock"></p>
         </div>
       </section>
 
@@ -104,11 +81,9 @@
           <p>
             <strong>Vidéo noire ou figée ?</strong> Windows ne dessine pas les fenêtres d'un
             bureau qui n'est pas affiché, et Chrome arrête de dessiner une fenêtre cachée : la
-            diffusion ne reçoit alors qu'une image figée. Pour une vidéo YouTube, utilisez
-            « Parcourir YouTube » : c'est l'application qui lit la vidéo, elle s'affiche
-            toujours.
+            diffusion ne reçoit alors qu'une image figée. Pour une vidéo enregistrée sur
+            l'ordinateur, utilisez l'onglet « Fichiers » : elle s'affiche toujours.
           </p>
-          <button class="btn small primary open-browse">Parcourir YouTube</button>
         </div>
 
         <div id="crop-row" class="crop-row" hidden>
@@ -145,26 +120,44 @@
         <p id="live-note" class="hint" hidden>
           Cette fenêtre vient d'un autre bureau : Windows ne dessine pas les fenêtres d'un bureau
           non affiché, elle est donc visible sur ce bureau le temps de la diffusion. Elle
-          retrouve son bureau à l'arrêt. Pour YouTube sans aucun changement de bureau, utilisez
-          « Parcourir YouTube ».
+          retrouve son bureau à l'arrêt.
         </p>
 
         <div id="remote" class="remote" hidden>
-          <h2>Télécommande YouTube</h2>
-          <p id="remote-ad" class="remote-ad" hidden>Publicité détectée : passage automatique…</p>
-          <input id="remote-seek" type="range" min="0" max="0" step="1" value="0" />
-          <div class="remote-time"><span id="remote-time">0:00</span><span id="remote-duration">0:00</span></div>
-          <div class="remote-buttons">
-            <button class="btn small" data-yt="seek-to" data-value="0" title="Revenir au début">⏮</button>
-            <button class="btn small" data-yt="seek-by" data-value="-10">−10 s</button>
-            <button id="remote-toggle" class="btn small primary" data-yt="toggle">Pause</button>
-            <button class="btn small" data-yt="seek-by" data-value="10">+10 s</button>
-            <button id="remote-mute" class="btn small" data-yt="mute">Couper le son</button>
+          <h2>Télécommande</h2>
+          <div id="remote-media">
+            <input id="remote-seek" type="range" min="0" max="0" step="0.1" value="0" />
+            <div class="remote-time">
+              <span id="remote-time">0:00</span><span id="remote-duration">0:00</span>
+            </div>
+            <div class="remote-buttons">
+              <button class="btn small" data-media="seek-to" data-value="0" title="Revenir au début">⏮</button>
+              <button class="btn small" data-media="seek-by" data-value="-10">−10 s</button>
+              <button id="remote-toggle" class="btn small primary" data-media="toggle">❚❚ Pause</button>
+              <button class="btn small" data-media="seek-by" data-value="10">+10 s</button>
+              <button id="remote-mute" class="btn small" data-media="mute">Couper le son</button>
+            </div>
+            <div class="remote-options">
+              <label class="volume">
+                <span>Volume</span>
+                <input id="remote-volume" type="range" min="0" max="100" step="1" value="100" />
+              </label>
+              <label class="obs-audio">
+                <input id="remote-loop" type="checkbox" />
+                <span>En boucle</span>
+              </label>
+            </div>
           </div>
-          <label class="volume">
-            <span>Volume</span>
-            <input id="remote-volume" type="range" min="0" max="100" step="1" value="100" />
-          </label>
+          <div id="remote-slides" class="remote-slides">
+            <button class="btn" data-media="prev" title="Diapositive précédente (←)">◀ Précédent</button>
+            <span id="remote-slide" class="remote-slide">1 / 1</span>
+            <button class="btn primary-big" data-media="next" title="Diapositive suivante (→ ou Espace)">
+              Suivant ▶
+            </button>
+          </div>
+          <p id="remote-slides-hint" class="hint">
+            Flèches ← → ou Espace pour changer de diapositive (quand la souris n'est pas dans un champ).
+          </p>
         </div>
 
         <div id="obs" class="obs">
@@ -173,19 +166,21 @@
             <span id="obs-status" class="obs-status">Non connecté</span>
           </div>
           <p class="hint">
-            Le rendu de la diffusion (60 images/s, avec le son) est disponible pour OBS
-            sur cet ordinateur. Ajoutez dans OBS une <strong>Source navigateur</strong> (largeur
-            1920, hauteur 1080, cochez <strong>« Contrôler l'audio via OBS »</strong>) avec cette
-            adresse :
+            Le rendu de la diffusion (avec le son) est disponible pour OBS sur cet ordinateur.
+            Le plus fluide : une <strong>Source média</strong> (décochez « Fichier local ») avec
+            cette adresse :
+          </p>
+          <div class="obs-url">
+            <code id="obs-stream">…</code>
+            <button class="btn small" data-copy="obs-stream">Copier</button>
+          </div>
+          <p class="hint">
+            ou une <strong>Source navigateur</strong> (1920 × 1080, cochez « Contrôler l'audio via
+            OBS ») :
           </p>
           <div class="obs-url">
             <code id="obs-page">…</code>
             <button class="btn small" data-copy="obs-page">Copier</button>
-          </div>
-          <p class="hint">ou une <strong>Source média</strong> (décochez « Fichier local ») :</p>
-          <div class="obs-url">
-            <code id="obs-stream">…</code>
-            <button class="btn small" data-copy="obs-stream">Copier</button>
           </div>
           <div class="obs-options">
             <label class="obs-audio">

@@ -1,0 +1,41 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  cursor: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+video,
+img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+body.fit-cover video,
+body.fit-cover img {
+  object-fit: cover;
+}
+
+body.fit-fill video,
+body.fit-fill img {
+  object-fit: fill;
+}
+
+/* Page de PDF : dessinée à la taille exacte de l'écran, centrée. */
+canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}

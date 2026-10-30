@@ -12,7 +12,18 @@ const HOST = "127.0.0.1";
 const FIRST_PORT = 8765;
 const LAST_PORT = 8775;
 const BOUNDARY = "diffusionecran";
-const VIEWER = fs.readFileSync(path.join(__dirname, "viewer.html"));
+// Identifiant de ce lancement de l'application : la page d'OBS le compare
+// régulièrement et se recharge d'elle-même après un redémarrage ou une mise à
+// jour (plus besoin de « Rafraîchir le cache de la page » dans OBS).
+const BOOT_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const VIEWER = fs
+  .readFileSync(path.join(__dirname, "viewer.html"), "utf8")
+  .replace("__BOOT_ID__", BOOT_ID);
+const NO_CACHE = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
 
 function createObsServer({ onClientsChanged, onWebmClient }) {
   const clients = new Set(); // flux MJPEG
@@ -27,8 +38,12 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...NO_CACHE });
       return res.end(VIEWER);
+    }
+    if (url.pathname === "/version") {
+      res.writeHead(200, { "Content-Type": "application/json", ...NO_CACHE });
+      return res.end(JSON.stringify({ boot: BOOT_ID }));
     }
     if (url.pathname === "/image.jpg") {
       if (!lastFrame) {
@@ -42,7 +57,7 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
       const format = url.pathname === "/live.mp4" ? "mp4" : "webm";
       res.writeHead(200, {
         "Content-Type": format === "mp4" ? "video/mp4" : "video/webm",
-        "Cache-Control": "no-store",
+        ...NO_CACHE,
         Connection: "close",
       });
       const id = nextWebmId++;
@@ -59,7 +74,7 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
     if (url.pathname === "/flux.mjpg") {
       res.writeHead(200, {
         "Content-Type": `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
-        "Cache-Control": "no-store",
+        ...NO_CACHE,
         Connection: "close",
       });
       const client = { res, busy: false };
