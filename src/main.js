@@ -150,6 +150,9 @@ const obs = createObsServer({
     syncRelayAudio();
     sendToControl("obs", obsInfo());
   },
+  onDirectClient: () => {
+    if (relayWindow && !relayWindow.isDestroyed()) relayWindow.webContents.send("relay:keyframe");
+  },
   onWebmClient: (id, start, format) => {
     if (relayWindow && !relayWindow.isDestroyed()) {
       relayWindow.webContents.send("relay:recorder", { id, start, format });
@@ -313,6 +316,10 @@ function createRelayWindow() {
 
 ipcMain.on("relay:frame", (event, frame) => {
   if (relayWindow && event.sender === relayWindow.webContents) obs.pushFrame(Buffer.from(frame));
+});
+
+ipcMain.on("relay:direct", (event, message) => {
+  if (relayWindow && event.sender === relayWindow.webContents) obs.pushDirect(message);
 });
 
 ipcMain.on("relay:chunk", (event, id, chunk) => {

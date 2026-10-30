@@ -7,8 +7,10 @@ const TARGET = 0.08; // secondes de réserve visées
 const MAX = 0.3; // au-delà, on rattrape en jetant le plus ancien
 
 class PcmPlayer extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
+    // Réserve visée (secondes), éventuellement fixée par la page.
+    this.target = (options && options.processorOptions && options.processorOptions.target) || TARGET;
     this.capacity = Math.round(sampleRate * 2) * CHANNELS;
     this.ring = new Float32Array(this.capacity);
     this.read = 0;
@@ -23,9 +25,9 @@ class PcmPlayer extends AudioWorkletProcessor {
       if (this.filled < this.capacity) this.filled++;
       else this.read = (this.read + 1) % this.capacity;
     }
-    const max = Math.round(sampleRate * MAX) * CHANNELS;
+    const max = Math.round(sampleRate * Math.max(MAX, this.target * 2)) * CHANNELS;
     if (this.filled > max) {
-      const drop = this.filled - Math.round(sampleRate * TARGET) * CHANNELS;
+      const drop = this.filled - Math.round(sampleRate * this.target) * CHANNELS;
       this.read = (this.read + drop) % this.capacity;
       this.filled -= drop;
     }
@@ -34,7 +36,7 @@ class PcmPlayer extends AudioWorkletProcessor {
   process(_inputs, outputs) {
     const [left, right] = outputs[0];
     const frames = left.length;
-    if (!this.started && this.filled >= Math.round(sampleRate * TARGET) * CHANNELS) this.started = true;
+    if (!this.started && this.filled >= Math.round(sampleRate * this.target) * CHANNELS) this.started = true;
     for (let i = 0; i < frames; i++) {
       if (this.started && this.filled >= CHANNELS) {
         left[i] = this.ring[this.read];

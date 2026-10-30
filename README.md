@@ -73,14 +73,17 @@ Pendant la diffusion, l'application publie le rendu, image et son, sur cet ordin
 L'encadré **OBS Studio** de la régie affiche les adresses (bouton **Copier**) et indique
 quand OBS est connecté.
 
-- **Source média** (recommandé, le plus fluide) : dans OBS, **+** → **Source média**,
-  décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.mp4`.
-- ou **Source navigateur** : adresse `http://127.0.0.1:8765/`, largeur **1920**, hauteur
-  **1080**, et cochez **« Contrôler l'audio via OBS »** : le son arrive dans la table de
-  mixage d'OBS. La page se recharge toute seule quand l'application redémarre ou est mise
-  à jour : inutile de « Rafraîchir le cache de la page » dans OBS.
+- **Source navigateur** (recommandé) : dans OBS, **+** → **Navigateur**, adresse
+  `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**, et cochez **« Contrôler
+  l'audio via OBS »** : le son arrive dans la table de mixage d'OBS. Chaque image est
+  envoyée encodée puis affichée dès son arrivée (WebCodecs), avec environ 0,15 s de
+  retard. La page se recharge toute seule quand l'application redémarre ou est mise à
+  jour : inutile de « Rafraîchir le cache de la page » dans OBS.
+- ou **Source média** : **+** → **Source média**, décochez **Fichier local**, entrée
+  `http://127.0.0.1:8765/live.mp4` (environ 1 s de retard).
 - Pour profiter des 60 images par seconde : dans OBS, **Paramètres → Vidéo → Valeur
-  FPS commune : 60**.
+  FPS commune : 60** (et, pour la Source navigateur, laissez la fréquence d'images
+  d'OBS ou réglez une fréquence personnalisée de 60).
 - `http://127.0.0.1:8765/flux.mjpg` reste disponible pour une image seule, sans son.
 
 **Le son du flux** (jamais celui des autres fenêtres) :

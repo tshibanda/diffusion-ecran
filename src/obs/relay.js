@@ -26,8 +26,8 @@ const FORMATS = {
 };
 
 let source = null; // { sourceId, fit, crop } ou null
-let clients = { mjpeg: 0, webm: 0 };
-const totalClients = () => clients.mjpeg + clients.webm;
+let clients = { mjpeg: 0, webm: 0, direct: 0 };
+const totalClients = () => clients.mjpeg + clients.webm + clients.direct;
 
 ctx.imageSmoothingEnabled = true;
 ctx.imageSmoothingQuality = "high";
@@ -157,15 +157,17 @@ let writing = false;
 let gridStart = null;
 let lastSlot = -1;
 
-function pushVideoFrame(now) {
-  if (writing) return; // l'image précédente n'est pas encore prise : on saute
+function gridTimestamp(now) {
   if (gridStart === null) gridStart = now;
   const slot = Math.max(lastSlot + 1, Math.round((now - gridStart) / FRAME_MS));
   lastSlot = slot;
+  return Math.round((gridStart + slot * FRAME_MS) * 1000);
+}
+
+function pushVideoFrame(timestamp) {
+  if (writing) return; // l'image précédente n'est pas encore prise : on saute
   writing = true;
-  const frame = new VideoFrame(canvas, {
-    timestamp: Math.round((gridStart + slot * FRAME_MS) * 1000),
-  });
+  const frame = new VideoFrame(canvas, { timestamp });
   videoWriter
     .write(frame)
     .catch(() => frame.close())
@@ -195,7 +197,9 @@ async function loop() {
       latestIsNew = false;
     }
     if (fresh || now - lastPushed >= REPEAT_MS) {
-      if (clients.webm > 0) pushVideoFrame(now);
+      const timestamp = gridTimestamp(now);
+      if (clients.webm > 0) pushVideoFrame(timestamp);
+      if (clients.direct > 0) encodeDirect(timestamp);
       if (clients.mjpeg > 0) pushJpeg(now);
       lastPushed = now;
     }
@@ -316,6 +320,122 @@ function stopRecorder(id) {
   if (recorder && recorder.state !== "inactive") recorder.stop();
 }
 
+// --- Flux direct pour la page d'OBS (WebCodecs) ----------------------------------------
+// Chaque image est encodée tout de suite (H.264 par la carte graphique quand
+// c'est possible, sinon VP8) et envoyée telle quelle ; la page la décode et
+// l'affiche aussitôt, à son rythme. Pas de mise en mémoire tampon par blocs
+// (MSE), qui fait sauter des images en direct. Le son suit le même chemin (Opus).
+
+const DIRECT_KEYFRAME_MS = 2000;
+let videoEncoder = null;
+let videoEncoderSize = null;
+let needKeyframe = true;
+let lastKeyframe = 0;
+
+async function ensureVideoEncoder() {
+  const size = `${canvas.width}x${canvas.height}`;
+  if (videoEncoder && videoEncoder.state === "configured" && videoEncoderSize === size) return;
+  if (videoEncoder && videoEncoder.state !== "closed") videoEncoder.close();
+  videoEncoder = null;
+  const base = {
+    width: canvas.width,
+    height: canvas.height,
+    bitrate: VIDEO_BITRATE[canvas.height] || VIDEO_BITRATE[1080],
+    framerate: FPS,
+    latencyMode: "realtime",
+  };
+  const candidates = [
+    { ...base, codec: "avc1.64002A", avc: { format: "annexb" } },
+    { ...base, codec: "vp8" },
+  ];
+  let config = null;
+  for (const candidate of candidates) {
+    try {
+      if ((await VideoEncoder.isConfigSupported(candidate)).supported) {
+        config = candidate;
+        break;
+      }
+    } catch {
+      // Essai suivant.
+    }
+  }
+  if (!config) return;
+  const encoder = new VideoEncoder({
+    output: (chunk) => sendDirectChunk("video", chunk),
+    error: () => {
+      if (videoEncoder === encoder) videoEncoder = null;
+    },
+  });
+  encoder.configure(config);
+  videoEncoder = encoder;
+  videoEncoderSize = size;
+  needKeyframe = true;
+  api.sendDirect({ kind: "video-config", config: { codec: config.codec, width: config.width, height: config.height } });
+}
+
+let encoderStarting = null;
+function encodeDirect(timestamp) {
+  const sizeChanged = videoEncoderSize !== `${canvas.width}x${canvas.height}`;
+  if (!videoEncoder || videoEncoder.state !== "configured" || sizeChanged) {
+    if (!encoderStarting) encoderStarting = ensureVideoEncoder().finally(() => (encoderStarting = null));
+    return;
+  }
+  // Encodeur en retard : on saute l'image plutôt que d'accumuler du retard.
+  if (videoEncoder.encodeQueueSize > 2) return;
+  const now = performance.now();
+  const keyFrame = needKeyframe || now - lastKeyframe >= DIRECT_KEYFRAME_MS;
+  if (keyFrame) {
+    needKeyframe = false;
+    lastKeyframe = now;
+  }
+  const frame = new VideoFrame(canvas, { timestamp });
+  videoEncoder.encode(frame, { keyFrame });
+  frame.close();
+}
+
+function sendDirectChunk(kind, chunk) {
+  const data = new Uint8Array(chunk.byteLength);
+  chunk.copyTo(data);
+  api.sendDirect({ kind, key: chunk.type === "key", timestamp: chunk.timestamp, data });
+}
+
+let audioEncoder = null;
+let audioEncoderToken = 0;
+
+async function startAudioEncoder() {
+  if (audioEncoder) return;
+  const mine = ++audioEncoderToken;
+  const config = { codec: "opus", sampleRate: 48000, numberOfChannels: 2, bitrate: AUDIO_BITRATE };
+  const encoder = new AudioEncoder({ output: (chunk) => sendDirectChunk("audio", chunk), error: () => {} });
+  encoder.configure(config);
+  audioEncoder = encoder;
+  api.sendDirect({ kind: "audio-config", config: { codec: "opus", sampleRate: 48000, numberOfChannels: 2 } });
+  const track = audioOut.stream.getAudioTracks()[0].clone();
+  const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+  audioContext.resume();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done || mine !== audioEncoderToken) {
+      if (value) value.close();
+      break;
+    }
+    if (encoder.state === "configured") encoder.encode(value);
+    value.close();
+  }
+  track.stop();
+}
+
+function stopDirect() {
+  audioEncoderToken++;
+  if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
+  audioEncoder = null;
+  if (videoEncoder && videoEncoder.state !== "closed") videoEncoder.close();
+  videoEncoder = null;
+}
+
+// Nouveau client OBS : il doit commencer par une image clé.
+api.onRelayKeyframe(() => (needKeyframe = true));
+
 // --- Messages de l'application --------------------------------------------------------
 
 // Qualité du flux : 1080p (par défaut) ou 720p, plus léger pour l'ordinateur.
@@ -338,7 +458,13 @@ api.onRelaySource((next) => {
 });
 
 api.onRelayClients((count) => {
-  clients = count;
+  clients = { mjpeg: 0, webm: 0, direct: 0, ...count };
+  if (clients.direct > 0) {
+    startAudioEncoder();
+    needKeyframe = true;
+  } else {
+    stopDirect();
+  }
   syncCapture();
   if (totalClients() > 0) loop();
 });
