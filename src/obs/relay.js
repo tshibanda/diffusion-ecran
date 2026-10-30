@@ -393,10 +393,19 @@ function encodeDirect(timestamp) {
   frame.close();
 }
 
+// Le son et l'image doivent partager la même horloge (celle de l'image :
+// performance.now, en µs) pour rester synchronisés dans le flux MPEG-TS.
+let audioClockOffset = null;
+
 function sendDirectChunk(kind, chunk) {
   const data = new Uint8Array(chunk.byteLength);
   chunk.copyTo(data);
-  api.sendDirect({ kind, key: chunk.type === "key", timestamp: chunk.timestamp, data });
+  let timestamp = chunk.timestamp;
+  if (kind === "audio") {
+    if (audioClockOffset === null) audioClockOffset = performance.now() * 1000 - chunk.timestamp;
+    timestamp += audioClockOffset;
+  }
+  api.sendDirect({ kind, key: chunk.type === "key", timestamp, data });
 }
 
 let audioEncoder = null;
@@ -427,6 +436,7 @@ async function startAudioEncoder() {
 
 function stopDirect() {
   audioEncoderToken++;
+  audioClockOffset = null;
   if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
   audioEncoder = null;
   if (videoEncoder && videoEncoder.state !== "closed") videoEncoder.close();

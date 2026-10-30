@@ -1,13 +1,16 @@
 // Serveur local du flux OBS (uniquement sur cet ordinateur, 127.0.0.1) :
 //   /           page pour une « Source navigateur » d'OBS (image + son)
 //   /direct     flux de cette page : images et son encodés, envoyés un par un
-//   /live.mp4   flux image + son (H.264/Opus) pour une « Source média »
+//   /live.ts    flux image + son (MPEG-TS, H.264/Opus) pour une « Source média » :
+//               chaque image part dès qu'elle est encodée (le plus fluide)
+//   /live.mp4   flux image + son (MP4, H.264/Opus), arrive par blocs
 //   /live.webm  même flux en WebM (VP8/Opus), si H.264 pose problème
 //   /flux.mjpg  flux image seule (MJPEG), le plus léger
 //   /image.jpg  dernière image
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { createTsMuxer } = require("./ts");
 
 const HOST = "127.0.0.1";
 const FIRST_PORT = 8765;
@@ -49,11 +52,19 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
   const webmClients = new Map(); // id -> réponse HTTP
   const directClients = new Set(); // { res, waitingKey }
   const directConfig = {}; // dernières configurations vidéo et son
+  const tsClients = new Set(); // { res, waitingKey }
+  const ts = createTsMuxer();
+  let directVideoCodec = null;
   let nextWebmId = 1;
   let lastFrame = null;
   let port = null;
 
-  const counts = () => ({ mjpeg: clients.size, webm: webmClients.size, direct: directClients.size });
+  // Le flux MPEG-TS utilise les mêmes encodeurs que le flux direct.
+  const counts = () => ({
+    mjpeg: clients.size,
+    webm: webmClients.size,
+    direct: directClients.size + tsClients.size,
+  });
   const notify = () => onClientsChanged(counts());
 
   const server = http.createServer((req, res) => {
@@ -87,6 +98,18 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
       directClients.add(client);
       req.on("close", () => {
         directClients.delete(client);
+        notify();
+      });
+      notify();
+      onDirectClient();
+      return;
+    }
+    if (url.pathname === "/live.ts") {
+      res.writeHead(200, { "Content-Type": "video/mp2t", ...NO_CACHE, Connection: "close" });
+      const client = { res, waitingKey: true };
+      tsClients.add(client);
+      req.on("close", () => {
+        tsClients.delete(client);
         notify();
       });
       notify();
@@ -154,6 +177,8 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
 
   // Message du flux direct (voir obs/relay.js : sendDirect).
   function pushDirect({ kind, key, timestamp, data, config }) {
+    if (kind === "video-config") directVideoCodec = config.codec;
+    if (tsClients.size) pushTs(kind, key, timestamp, data);
     if (kind === "video-config" || kind === "audio-config") {
       const message = directMessage(kind, false, 0, Buffer.from(JSON.stringify(config)));
       directConfig[kind] = message;
@@ -180,6 +205,33 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
     }
   }
 
+  // MPEG-TS : H.264 seulement (si la carte graphique et le système n'offrent
+  // que VP8, utilisez la Source navigateur ou /live.mp4).
+  function pushTs(kind, key, timestamp, data) {
+    if (kind === "video-config") {
+      for (const client of tsClients) client.waitingKey = true;
+      return;
+    }
+    if (kind === "audio-config" || !directVideoCodec || !directVideoCodec.startsWith("avc1")) return;
+    let packets = null;
+    let tables = null;
+    for (const client of tsClients) {
+      if (client.waitingKey) {
+        if (kind !== "video" || !key) continue;
+        client.waitingKey = false;
+      }
+      if (client.res.writableLength > DIRECT_MAX_PENDING) {
+        client.waitingKey = true;
+        onDirectClient();
+        continue;
+      }
+      if (!packets) packets = kind === "video" ? ts.video(timestamp, data, key) : ts.audio(timestamp, data);
+      // Tables du programme répétées à chaque image clé (point d'entrée).
+      if (kind === "video" && key) client.res.write(tables || (tables = ts.tables()));
+      client.res.write(packets);
+    }
+  }
+
   function listen(candidate = FIRST_PORT) {
     return new Promise((resolve) => {
       server.once("error", () => {
@@ -202,7 +254,7 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
       port
         ? {
             page: `http://${HOST}:${port}/`,
-            stream: `http://${HOST}:${port}/live.mp4`,
+            stream: `http://${HOST}:${port}/live.ts`,
             mjpeg: `http://${HOST}:${port}/flux.mjpg`,
           }
         : null,
@@ -211,11 +263,12 @@ function createObsServer({ onClientsChanged, onWebmClient, onDirectClient }) {
     dropWebmClients: () => {
       for (const res of webmClients.values()) res.end();
     },
-    clientCount: () => clients.size + webmClients.size + directClients.size,
+    clientCount: () => clients.size + webmClients.size + directClients.size + tsClients.size,
     close: () => {
       for (const { res } of clients) res.end();
       for (const res of webmClients.values()) res.end();
       for (const { res } of directClients) res.end();
+      for (const { res } of tsClients) res.end();
       server.close();
     },
   };

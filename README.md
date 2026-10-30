@@ -80,7 +80,9 @@ quand OBS est connecté.
   retard. La page se recharge toute seule quand l'application redémarre ou est mise à
   jour : inutile de « Rafraîchir le cache de la page » dans OBS.
 - ou **Source média** : **+** → **Source média**, décochez **Fichier local**, entrée
-  `http://127.0.0.1:8765/live.mp4` (environ 1 s de retard).
+  `http://127.0.0.1:8765/live.ts` (MPEG-TS : chaque image part dès qu'elle est encodée,
+  sans à-coups). Cochez **Utiliser le décodage matériel**, tampon réseau 1 à 2 Mo.
+  `/live.mp4` reste disponible mais arrive par blocs d'une demi-seconde (moins fluide).
 - Pour profiter des 60 images par seconde : dans OBS, **Paramètres → Vidéo → Valeur
   FPS commune : 60** (et, pour la Source navigateur, laissez la fréquence d'images
   d'OBS ou réglez une fréquence personnalisée de 60).
