@@ -157,9 +157,9 @@ const obs = createObsServer({
     syncRelayAudio();
     sendToControl("obs", obsInfo());
   },
-  onWebmClient: (id, start) => {
+  onWebmClient: (id, start, format) => {
     if (relayWindow && !relayWindow.isDestroyed()) {
-      relayWindow.webContents.send("relay:recorder", { id, start });
+      relayWindow.webContents.send("relay:recorder", { id, start, format });
     }
   },
 });

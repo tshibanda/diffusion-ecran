@@ -74,7 +74,10 @@ quand OBS est connecté.
 - **Source navigateur** (recommandé) : dans OBS, **+** → **Navigateur**, adresse
   `http://127.0.0.1:8765/`, largeur **1920**, hauteur **1080**, et cochez
   **« Contrôler l'audio via OBS »** : le son arrive dans la table de mixage d'OBS.
-- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.webm`.
+- ou **Source média** : décochez **Fichier local**, entrée `http://127.0.0.1:8765/live.mp4`
+  (`/live.webm` reste disponible si besoin).
+- Pour profiter des 60 images par seconde : dans OBS, **Paramètres → Vidéo → Valeur
+  FPS commune : 60**.
 - `http://127.0.0.1:8765/flux.mjpg` reste disponible pour une image seule, sans son.
 
 **Le son du flux :**
@@ -86,8 +89,11 @@ quand OBS est connecté.
 - Important : cochez « Contrôler l'audio via OBS » dans la Source navigateur. Sinon la
   page joue le son sur les haut-parleurs, qui serait capturé à nouveau (écho).
 
-**Qualité :** 1080p par défaut (jusqu'à 30 images par seconde), ou 720p, plus léger
-pour un ordinateur modeste. Le flux a environ une demi-seconde de retard. Sans
+**Qualité :** 60 images par seconde, en 1080p (par défaut, 20 Mbit/s) ou 720p (plus
+léger pour un ordinateur modeste). La vidéo est encodée en H.264, par la carte graphique
+quand elle le permet ; une zone recadrée est capturée en plus haute définition pour
+rester nette. Si l'ordinateur ne suit pas, des images sont sautées plutôt que de prendre
+du retard : passez alors en 720p. Le flux a environ une demi-seconde de retard. Sans
 diffusion, il est noir. Rien n'est calculé tant qu'OBS n'est pas connecté. Si le port
 8765 est déjà pris, l'application en choisit un autre (8766, 8767…) et l'affiche dans
 l'encadré.

@@ -24,9 +24,14 @@
     <video id="video" autoplay playsinline></video>
     <img id="fallback" alt="" hidden />
     <script>
-      // Image + son en direct (WebM lu au fur et à mesure), en restant au plus
-      // près du direct. Si la lecture est impossible : image seule (MJPEG).
-      const TYPE = 'video/webm; codecs="vp8,opus"';
+      // Image + son en direct (lu au fur et à mesure), en restant au plus près
+      // du direct : H.264 (MP4) si possible, sinon VP8 (WebM), sinon image
+      // seule (MJPEG).
+      const FORMATS = [
+        { url: "/live.mp4", type: 'video/mp4; codecs="avc1.64002A,opus"' },
+        { url: "/live.webm", type: 'video/webm; codecs="vp8,opus"' },
+      ];
+      const tried = new URLSearchParams(location.search).get("format");
       const MAX_DELAY = 0.5; // secondes de retard tolérées avant de rattraper
       const KEEP = 10; // secondes de vidéo gardées en mémoire
       const video = document.getElementById("video");
@@ -39,12 +44,20 @@
       }
 
       function start() {
-        if (!window.MediaSource || !MediaSource.isTypeSupported(TYPE)) return fallback();
+        const usable = FORMATS.filter((f) => window.MediaSource && MediaSource.isTypeSupported(f.type));
+        // Après un échec en H.264, on passe au format suivant.
+        const format = tried === "webm" ? usable.find((f) => f.url === "/live.webm") : usable[0];
+        if (!format) return fallback();
         const media = new MediaSource();
         video.src = URL.createObjectURL(media);
         media.addEventListener("sourceopen", async () => {
-          const buffer = media.addSourceBuffer(TYPE);
+          const buffer = media.addSourceBuffer(format.type);
           buffer.mode = "sequence";
+          let played = false;
+          video.addEventListener("playing", () => (played = true), { once: true });
+          buffer.addEventListener("error", () => {
+            if (!played && format.url === "/live.mp4") location.search = "?format=webm";
+          });
           const queue = [];
           const pump = () => {
             if (buffer.updating || !queue.length) return;
@@ -65,7 +78,7 @@
             pump();
           });
           try {
-            const response = await fetch("/live.webm", { cache: "no-store" });
+            const response = await fetch(format.url, { cache: "no-store" });
             const reader = response.body.getReader();
             for (;;) {
               const { value, done } = await reader.read();

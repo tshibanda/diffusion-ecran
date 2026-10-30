@@ -1,6 +1,7 @@
 // Serveur local du flux OBS (uniquement sur cet ordinateur, 127.0.0.1) :
 //   /           page pour une « Source navigateur » d'OBS (image + son)
-//   /live.webm  flux image + son (WebM VP8/Opus) pour une « Source média »
+//   /live.mp4   flux image + son (H.264/Opus) pour une « Source média »
+//   /live.webm  même flux en WebM (VP8/Opus), si H.264 pose problème
 //   /flux.mjpg  flux image seule (MJPEG), le plus léger
 //   /image.jpg  dernière image
 const http = require("http");
@@ -37,9 +38,10 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
       res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
       return res.end(lastFrame);
     }
-    if (url.pathname === "/live.webm") {
+    if (url.pathname === "/live.mp4" || url.pathname === "/live.webm") {
+      const format = url.pathname === "/live.mp4" ? "mp4" : "webm";
       res.writeHead(200, {
-        "Content-Type": "video/webm",
+        "Content-Type": format === "mp4" ? "video/mp4" : "video/webm",
         "Cache-Control": "no-store",
         Connection: "close",
       });
@@ -51,7 +53,7 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
         notify();
       });
       notify();
-      onWebmClient(id, true);
+      onWebmClient(id, true, format);
       return;
     }
     if (url.pathname === "/flux.mjpg") {
@@ -116,7 +118,7 @@ function createObsServer({ onClientsChanged, onWebmClient }) {
       port
         ? {
             page: `http://${HOST}:${port}/`,
-            stream: `http://${HOST}:${port}/live.webm`,
+            stream: `http://${HOST}:${port}/live.mp4`,
             mjpeg: `http://${HOST}:${port}/flux.mjpg`,
           }
         : null,
